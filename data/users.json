@@ -1,0 +1,10 @@
+{
+  "admin": {
+    "password_hash": "29ba537c42c10032286417ef9be675bf0adfcfb269afbf4f21fc63e1019a1db4",
+    "role": "admin"
+  },
+  "anais": {
+    "password_hash": "3f5f7abffd3afe6524bdc19b04ca5eb8221f167c22de045194ad19c6be031eff",
+    "role": "viewer"
+  }
+}

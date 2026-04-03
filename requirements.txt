@@ -1,0 +1,17 @@
+pandas
+numpy
+python-dotenv
+requests
+python-docx
+jinja2
+langgraph
+docarray
+fastembed
+pytest
+fastapi
+python-multipart
+uvicorn
+pydantic
+PyJWT
+SQLAlchemy
+PyMySQL

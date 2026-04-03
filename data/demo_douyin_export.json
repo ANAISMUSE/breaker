@@ -1,0 +1,58 @@
+[
+  {
+    "user_id": "demo_user_001",
+    "aweme_id": "a1",
+    "create_time": "2026-03-20 10:00:00",
+    "desc": "今天分享一个有趣的 AI 科技新闻",
+    "digg_count": 12,
+    "comment_count": 3,
+    "share_count": 1,
+    "duration": 35,
+    "topic": "科技",
+    "stance": "neutral",
+    "emotion_score": 3,
+    "author_id": "author001"
+  },
+  {
+    "user_id": "demo_user_001",
+    "aweme_id": "a2",
+    "create_time": "2026-03-21 13:20:00",
+    "desc": "搞笑日常合集，笑不停",
+    "digg_count": 40,
+    "comment_count": 10,
+    "share_count": 5,
+    "duration": 22,
+    "topic": "搞笑",
+    "stance": "neutral",
+    "emotion_score": 4,
+    "author_id": "author002"
+  },
+  {
+    "user_id": "demo_user_001",
+    "aweme_id": "a3",
+    "create_time": "2026-03-22 08:02:00",
+    "desc": "社会热点讨论：不同观点怎么看",
+    "digg_count": 8,
+    "comment_count": 12,
+    "share_count": 2,
+    "duration": 58,
+    "topic": "社会",
+    "stance": "left",
+    "emotion_score": 4,
+    "author_id": "author003"
+  },
+  {
+    "user_id": "demo_user_001",
+    "aweme_id": "a4",
+    "create_time": "2026-03-23 18:50:00",
+    "desc": "健康饮食小科普",
+    "digg_count": 5,
+    "comment_count": 1,
+    "share_count": 0,
+    "duration": 44,
+    "topic": "健康",
+    "stance": "neutral",
+    "emotion_score": 2,
+    "author_id": "author004"
+  }
+]

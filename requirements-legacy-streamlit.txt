@@ -1,0 +1,3 @@
+# Optional: legacy Streamlit UI (removed from main app). Install only if you need old prototypes.
+streamlit
+streamlit-echarts

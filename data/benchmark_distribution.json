@@ -1,0 +1,10 @@
+{
+  "entertainment": 0.25,
+  "technology": 0.16,
+  "education": 0.14,
+  "society": 0.12,
+  "politics": 0.08,
+  "finance": 0.1,
+  "sports": 0.08,
+  "health": 0.07
+}

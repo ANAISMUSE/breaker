@@ -1,0 +1,13 @@
+[
+  {
+    "task_id": "995a6b06-ec31-4822-b218-fa758ad908d8",
+    "name": "11",
+    "strategy": "baseline",
+    "status": "pending",
+    "created_at": "2026-04-02T10:39:23.833215Z",
+    "rounds": 14,
+    "snapshot": {},
+    "cocoon_series": [],
+    "best_strategy_hint": ""
+  }
+]

@@ -1,0 +1,13 @@
+{"ts": "2026-04-01T05:30:29.663467Z", "event": "pipeline_completed", "detail": {"rows": 4}}
+{"ts": "2026-04-01T06:57:31.802189Z", "event": "pipeline_completed", "detail": {"rows": 4}}
+{"ts": "2026-04-01T06:57:40.886332Z", "event": "export_report", "detail": {"path": "outputs\\jianping_report_20260401_145740.docx"}}
+{"ts": "2026-04-01T06:57:59.638301Z", "event": "strategy_compare", "detail": {"rounds": 14}}
+{"ts": "2026-04-01T09:42:14.962169Z", "event": "single_strategy_sim", "detail": {"strategy": "aggressive", "rounds": 14}}
+{"ts": "2026-04-01T09:42:20.125541Z", "event": "single_strategy_sim", "detail": {"strategy": "baseline", "rounds": 14}}
+{"ts": "2026-04-01T09:42:23.560072Z", "event": "task_created", "detail": {"task_id": "33c87b30-ba15-4988-b2aa-abd223ce20cb", "strategy": "multi"}}
+{"ts": "2026-04-01T09:42:30.551283Z", "event": "strategy_compare", "detail": {"rounds": 30}}
+{"ts": "2026-04-01T10:57:56.207401Z", "event": "wipe_local_session_data", "detail": {"removed": ["data\\vector_store.json", "data\\tasks_store.json"]}}
+{"ts": "2026-04-01T12:03:00.386204Z", "event": "user_login", "detail": {"username": "admin", "role": "admin"}}
+{"ts": "2026-04-01T12:20:28.841717Z", "event": "user_login", "detail": {"username": "admin", "role": "admin"}}
+{"ts": "2026-04-02T03:13:35.336464Z", "event": "user_login", "detail": {"username": "admin", "role": "admin"}}
+{"ts": "2026-04-02T10:39:23.845633Z", "event": "task_created", "detail": {"task_id": "995a6b06-ec31-4822-b218-fa758ad908d8", "strategy": "baseline"}}
