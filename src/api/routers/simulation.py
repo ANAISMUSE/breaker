@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import traceback
 import uuid
 
 import pandas as pd
@@ -29,13 +28,8 @@ class CompareIn(BaseModel):
 
 @router.post("/compare")
 def compare(payload: CompareIn) -> dict:
-    print("\n" + "🔥" * 30)
-    print(
-        f"✅ 请求已进入compare函数！收到rows数量：{len(payload.rows)}，轮次：{payload.rounds}"
-    )
-    print("🔥" * 30 + "\n")
     logger.info(
-        "compare接口被调用，rows数量=%d, 轮次=%d",
+        "compare: rows=%d rounds=%d",
         len(payload.rows),
         payload.rounds,
     )
@@ -68,20 +62,11 @@ def compare(payload: CompareIn) -> dict:
                 )
             except Exception:
                 logger.exception("persist simulation record failed (response still returned)")
-        print("\n" + "✅" * 30)
-        print("compare函数执行完成，正常返回结果")
-        print("✅" * 30 + "\n")
         logger.info("POST /api/simulation/compare ok")
         return out
-    except Exception as e:
-        print("\n" + "❌" * 50)
-        print("💥 compare函数捕获到致命异常！完整报错如下：")
-        print("❌" * 50)
-        traceback.print_exc()
-        print("❌" * 50 + "\n")
-
-        logger.error("compare接口执行失败", exc_info=True)
-        raise e
+    except Exception:
+        logger.exception("compare failed")
+        raise
 
 
 @router.get("/records")

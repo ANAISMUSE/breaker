@@ -58,6 +58,13 @@ def score_action_vector(candidate: CandidateContent, profile: DigitalTwinProfile
     s_skip = (1.0 - match_core) * 0.45 + (1.0 - novelty) * 0.2 + low_comments * 0.2
     s_skip += (1.0 - profile.behavior.like_rate) * 0.15
 
+    tr = profile.agent_traits
+    s_like += tr.echo_delta * match_core + tr.shallow_like_delta
+    s_comment += tr.deep_social_delta
+    s_search += tr.explore_delta
+    s_both += tr.deep_social_delta * 0.35
+    s_skip += tr.skip_unfamiliar_delta * (1.0 - match_core)
+
     raw = np.array([s_like, s_comment, s_search, s_both, s_skip], dtype=np.float64)
     return raw
 
