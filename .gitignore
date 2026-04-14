@@ -1,0 +1,25 @@
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Local virtual environments
+venv/
+venv310/
+.venv/
+.conda/
+
+# Frontend build/test artifacts
+frontend/dist/
+frontend/test-results/
+frontend/node_modules/.tmp/
+*.tsbuildinfo
+
+# Runtime/generated data
+data/audit_log.jsonl
+data/test_vector_store.json
+data/vector_store.json
+outputs/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
