@@ -22,3 +22,9 @@ def risk_overview(payload: EvalIn) -> dict:
     ev = service.evaluate_overview(df, payload.benchmark)
     return ev.__dict__
 
+
+@router.post("/detail")
+def risk_detail(payload: EvalIn) -> dict:
+    df = ensure_profile_dataframe(pd.DataFrame(payload.rows))
+    return service.evaluate_detail(df, payload.benchmark)
+

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
 import http from '@/api/http'
 import RowsFileImport from '@/components/RowsFileImport.vue'
+import { compareReplayPresets } from '@/constants/compareReplayPresets'
 import { demoBenchmark, demoRows } from '@/constants/demoData'
 
 const STRAT_ORDER = ['baseline', 'aggressive', 'ladder', 'mixed'] as const
+const REPLAY_KEY = 'compare.replay.payload'
 
 const STRAT_ZH: Record<string, string> = {
   baseline: '基线（偏沉浸）',
@@ -58,6 +61,12 @@ const dropEl = ref<HTMLDivElement | null>(null)
 let trendChart: echarts.ECharts | null = null
 let barChart: echarts.ECharts | null = null
 let dropChart: echarts.ECharts | null = null
+
+interface ReplayPayload {
+  rows: Array<Record<string, unknown>>
+  benchmark: Record<string, number>
+  rounds: number
+}
 
 function getOrInit(chart: echarts.ECharts | null, el: HTMLDivElement | null) {
   if (!el) return null
@@ -250,6 +259,136 @@ function onImportError(message: string) {
   errorMsg.value = message
 }
 
+function applyReplayPreset(payload: ReplayPayload) {
+  rowsText.value = JSON.stringify(payload.rows ?? [], null, 2)
+  benchmarkText.value = JSON.stringify(payload.benchmark ?? {}, null, 2)
+  rounds.value = Math.max(1, Number(payload.rounds || 10))
+}
+
+function applyBuiltInPreset(id: string) {
+  const preset = compareReplayPresets.find((x) => x.id === id)
+  if (!preset) return
+  errorMsg.value = ''
+  applyReplayPreset({
+    rows: preset.rows,
+    benchmark: preset.benchmark,
+    rounds: preset.rounds,
+  })
+}
+
+function maybeLoadReplayPayload() {
+  const raw = localStorage.getItem(REPLAY_KEY)
+  if (!raw) return
+  try {
+    const parsed = JSON.parse(raw) as ReplayPayload
+    if (!Array.isArray(parsed.rows) || typeof parsed.benchmark !== 'object') return
+    applyReplayPreset(parsed)
+    ElMessage.success('已加载历史回放数据')
+  } catch {
+    ElMessage.warning('检测到回放数据，但解析失败')
+  } finally {
+    localStorage.removeItem(REPLAY_KEY)
+  }
+}
+
+function toCsvText() {
+  const payload = comparePayload.value
+  if (!payload?.result) return ''
+  const rows = ['strategy,cocoon_start,cocoon_end,drop,best_name,best_drop,static_cocoon']
+  const best = payload.result._best as BestBlock | undefined
+  for (const key of STRAT_ORDER) {
+    const block = payload.result[key]
+    if (!block || !isStrategyBlock(block)) continue
+    rows.push(
+      [
+        key,
+        block.cocoon_start.toFixed(4),
+        block.cocoon_end.toFixed(4),
+        block.drop.toFixed(4),
+        best?.name ?? '',
+        typeof best?.drop === 'number' ? best.drop.toFixed(4) : '',
+        typeof best?.static_cocoon === 'number' ? best.static_cocoon.toFixed(4) : '',
+      ].join(','),
+    )
+  }
+  return rows.join('\n')
+}
+
+function downloadText(filename: string, text: string, mime = 'application/json;charset=utf-8') {
+  const blob = new Blob([text], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportJson() {
+  if (!resultText.value) {
+    ElMessage.warning('请先运行对比，再导出 JSON')
+    return
+  }
+  downloadText(`compare-result-${Date.now()}.json`, resultText.value)
+}
+
+function exportCsv() {
+  const csv = toCsvText()
+  if (!csv) {
+    ElMessage.warning('请先运行对比，再导出 CSV')
+    return
+  }
+  downloadText(`compare-result-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8')
+}
+
+async function exportChartPng() {
+  if (!trendChart && !barChart && !dropChart) {
+    ElMessage.warning('请先运行对比，再导出图表')
+    return
+  }
+  const charts = [trendChart, barChart, dropChart].filter(Boolean) as echarts.ECharts[]
+  const images = charts.map((chart) => {
+    const dom = chart.getDom()
+    return {
+      src: chart.getDataURL({ pixelRatio: 2, backgroundColor: '#ffffff' }),
+      width: Math.max(320, dom.clientWidth * 2),
+      height: Math.max(180, dom.clientHeight * 2),
+    }
+  })
+  const width = Math.max(...images.map((x) => x.width))
+  const gap = 20
+  const height = images.reduce((sum, img) => sum + img.height, 0) + gap * (images.length - 1)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    ElMessage.error('导出图表失败：无法创建画布')
+    return
+  }
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, width, height)
+  let y = 0
+  for (const img of images) {
+    const elem = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const tmp = new Image()
+      tmp.onload = () => resolve(tmp)
+      tmp.onerror = () => reject(new Error('load image failed'))
+      tmp.src = img.src
+    }).catch(() => null)
+    if (!elem) {
+      ElMessage.error('导出图表失败：图像加载异常')
+      return
+    }
+    ctx.drawImage(elem, 0, y, img.width, img.height)
+    y += img.height + gap
+  }
+  const link = document.createElement('a')
+  link.href = canvas.toDataURL('image/png')
+  link.download = `compare-charts-${Date.now()}.png`
+  link.click()
+}
+
 async function runCompare() {
   loading.value = true
   errorMsg.value = ''
@@ -287,6 +426,7 @@ async function runCompare() {
 
 let resizeHandler: (() => void) | null = null
 onMounted(() => {
+  maybeLoadReplayPayload()
   resizeHandler = () => {
     trendChart?.resize()
     barChart?.resize()
@@ -309,10 +449,20 @@ onBeforeUnmount(() => {
         <div class="head-actions">
           <span class="label">轮次</span>
           <el-input-number v-model="rounds" :min="1" :max="50" />
+          <el-button style="margin-left: 6px" @click="exportJson">导出 JSON</el-button>
+          <el-button @click="exportCsv">导出 CSV</el-button>
+          <el-button @click="exportChartPng">导出图表</el-button>
           <el-button type="primary" :loading="loading" style="margin-left: 12px" @click="runCompare">运行对比</el-button>
         </div>
       </div>
       <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+
+      <div class="preset-bar">
+        <span class="preset-title">固定回放模板</span>
+        <el-tooltip v-for="preset in compareReplayPresets" :key="preset.id" :content="preset.description" placement="top">
+          <el-button size="small" @click="applyBuiltInPreset(preset.id)">{{ preset.label }}</el-button>
+        </el-tooltip>
+      </div>
 
       <div v-if="bestInfo" class="best">
         <span class="best-tag">模拟推荐</span>
@@ -383,6 +533,23 @@ onBeforeUnmount(() => {
 .error {
   color: #dc2626;
   margin: 0 0 12px;
+}
+.preset-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.preset-title {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+  margin-right: 4px;
 }
 .best {
   display: flex;

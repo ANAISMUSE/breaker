@@ -11,8 +11,10 @@ import PersonaView from '@/views/PersonaView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import RegisterView from '@/views/RegisterView.vue'
 import ChangePasswordView from '@/views/ChangePasswordView.vue'
+import CompareHistoryView from '@/views/CompareHistoryView.vue'
 import TasksView from '@/views/TasksView.vue'
 import RiskView from '@/views/RiskView.vue'
+import RiskDetailView from '@/views/RiskDetailView.vue'
 import WorkbenchView from '@/views/WorkbenchView.vue'
 
 const router = createRouter({
@@ -54,12 +56,20 @@ const router = createRouter({
           component: RiskView,
         },
         {
+          path: 'analytics/risk-detail',
+          component: RiskDetailView,
+        },
+        {
           path: 'analytics/profile',
           component: ProfileView,
         },
         {
           path: 'analytics/compare',
           component: CompareView,
+        },
+        {
+          path: 'analytics/compare-history',
+          component: CompareHistoryView,
         },
         {
           path: 'data/persona',

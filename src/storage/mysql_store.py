@@ -144,6 +144,11 @@ class MySqlStore:
         with self.engine.begin() as conn:
             conn.execute(stmt)
 
+    def delete_device(self, device_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(devices_table.delete().where(devices_table.c.device_id == device_id))
+        return bool(result.rowcount and result.rowcount > 0)
+
     def create_simulation_record(
         self,
         record_id: str,
@@ -208,6 +213,38 @@ class MySqlStore:
                 }
             )
         return out
+
+    def get_persona_profile(self, profile_id: str) -> dict[str, Any] | None:
+        stmt = select(persona_profiles_table).where(persona_profiles_table.c.profile_id == profile_id)
+        with self.engine.connect() as conn:
+            row = conn.execute(stmt).mappings().first()
+        if not row:
+            return None
+        return {
+            "profile_id": row["profile_id"],
+            "user_id": row["user_id"],
+            "profile": row["profile"] or {},
+            "created_at": row["created_at"].isoformat() + "Z",
+        }
+
+    def update_persona_profile(self, profile_id: str, user_id: str | None = None, profile: dict | None = None) -> bool:
+        payload: dict[str, Any] = {}
+        if user_id is not None:
+            payload["user_id"] = user_id
+        if profile is not None:
+            payload["profile"] = profile
+        if not payload:
+            return False
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                persona_profiles_table.update().where(persona_profiles_table.c.profile_id == profile_id).values(**payload)
+            )
+        return bool(result.rowcount and result.rowcount > 0)
+
+    def delete_persona_profile(self, profile_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(persona_profiles_table.delete().where(persona_profiles_table.c.profile_id == profile_id))
+        return bool(result.rowcount and result.rowcount > 0)
 
     def list_tasks(self) -> list[dict[str, Any]]:
         stmt = select(tasks_table).order_by(tasks_table.c.created_at.desc())

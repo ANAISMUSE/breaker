@@ -1,50 +1,76 @@
 from __future__ import annotations
 
-import logging
-import uuid
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
-import pandas as pd
-from fastapi import APIRouter
-from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
-
-from src.data_ingestion.schema import normalize_topic
-
-_log = logging.getLogger(__name__)
-from src.storage.mysql_store import MySqlStore
-from src.twin.twin_builder import build_digital_twin_profile
+from src.services.persona_service import PersonaService
 
 router = APIRouter(prefix="/persona", tags=["persona"])
+service = PersonaService()
 
 
 class RowsIn(BaseModel):
     rows: list[dict]
 
 
+class PersonaCreateIn(BaseModel):
+    user_id: str = "unknown"
+    profile: dict = Field(default_factory=dict)
+
+
+class PersonaUpdateIn(BaseModel):
+    user_id: str | None = None
+    profile: dict | None = None
+
+
 @router.post("/build")
 def build_persona(payload: RowsIn) -> dict:
-    df = pd.DataFrame(payload.rows)
-    if "topic" in df.columns:
-        df["topic"] = df["topic"].astype(str).map(normalize_topic)
-    profile = build_digital_twin_profile(df)
-    out = profile.to_json_safe_dict()
+    record = service.create_profile_from_rows(payload.rows)
+    return {
+        "profile_id": record.profile_id,
+        "user_id": record.user_id,
+        "created_at": record.created_at,
+        "profile": record.profile,
+    }
 
-    if MySqlStore.enabled():
-        try:
-            store = MySqlStore.from_settings()
-            user_id = str(df["user_id"].iloc[0]) if (not df.empty and "user_id" in df.columns) else "unknown"
-            store.create_persona_profile(
-                profile_id=str(uuid.uuid4()), user_id=user_id, profile=jsonable_encoder(out)
-            )
-        except Exception:
-            _log.exception("persist persona profile failed (response still returned)")
-    return out
+
+@router.post("/profiles")
+def create_profile(payload: PersonaCreateIn) -> dict:
+    row = service.create_profile(payload.user_id, payload.profile)
+    return row.__dict__
+
+
+@router.get("/profiles")
+def list_persona_profiles(limit: int = 50) -> list[dict]:
+    return [x.__dict__ for x in service.list_profiles(limit=limit)]
+
+
+@router.get("/profiles/{profile_id}")
+def get_persona_profile(profile_id: str) -> dict:
+    row = service.get_profile(profile_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="persona profile not found")
+    return row.__dict__
+
+
+@router.patch("/profiles/{profile_id}")
+def update_persona_profile(profile_id: str, payload: PersonaUpdateIn) -> dict:
+    row = service.update_profile(profile_id, user_id=payload.user_id, profile=payload.profile)
+    if not row:
+        raise HTTPException(status_code=404, detail="persona profile not found")
+    return row.__dict__
+
+
+@router.delete("/profiles/{profile_id}")
+def delete_persona_profile(profile_id: str) -> dict:
+    ok = service.delete_profile(profile_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="persona profile not found")
+    return {"ok": True}
 
 
 @router.get("/records")
 def list_persona_records(limit: int = 50) -> list[dict]:
-    if not MySqlStore.enabled():
-        return []
-    store = MySqlStore.from_settings()
-    return store.list_persona_profiles(limit=limit)
+    # Backward-compatible alias.
+    return [x.__dict__ for x in service.list_profiles(limit=limit)]
 

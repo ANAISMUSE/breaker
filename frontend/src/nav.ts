@@ -22,8 +22,10 @@ export const navGroups: NavGroup[] = [
     title: '分析中心',
     children: [
       { title: '风险评估', path: '/app/analytics/risk' },
+      { title: '风险详情', path: '/app/analytics/risk-detail' },
       { title: '应用画像', path: '/app/analytics/profile' },
       { title: '平台对比', path: '/app/analytics/compare' },
+      { title: '对比历史', path: '/app/analytics/compare-history' },
     ],
   },
   {
