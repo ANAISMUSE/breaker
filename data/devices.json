@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "device_id": "dev_001",
+    "name": "本地",
+    "platform": "抖音",
+    "status": "stopped",
+    "last_seen": "2026-04-10T09:22:58.961252Z"
+  }
+]

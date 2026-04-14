@@ -16,6 +16,7 @@ class JsonTaskRepository(TaskRepository):
                 created_at=r.created_at,
                 rounds=r.rounds,
                 snapshot=r.snapshot,
+                task_logs=r.task_logs,
             )
             for r in rows
         ]
@@ -30,6 +31,7 @@ class JsonTaskRepository(TaskRepository):
             created_at=row.created_at,
             rounds=row.rounds,
             snapshot=row.snapshot,
+            task_logs=row.task_logs,
         )
 
     def get_task(self, task_id: str) -> TaskEntity | None:
@@ -44,6 +46,7 @@ class JsonTaskRepository(TaskRepository):
             created_at=row.created_at,
             rounds=row.rounds,
             snapshot=row.snapshot,
+            task_logs=row.task_logs,
         )
 
     def update_task(self, task_id: str, updates: dict) -> TaskEntity | None:

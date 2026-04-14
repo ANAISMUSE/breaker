@@ -13,6 +13,7 @@ class TaskEntity:
     created_at: str
     rounds: int
     snapshot: dict
+    task_logs: list[dict]
 
 
 class TaskRepository(Protocol):

@@ -10,6 +10,14 @@ interface TaskRow {
   created_at: string
   rounds: number
   snapshot: Record<string, unknown>
+  task_logs?: TaskLog[]
+}
+
+interface TaskLog {
+  ts: string
+  level: string
+  event: string
+  detail: Record<string, unknown>
 }
 
 const tasks = ref<TaskRow[]>([])
@@ -31,6 +39,8 @@ const createForm = ref({
 
 const taskDialogVisible = ref(false)
 const taskDialogTask = ref<TaskRow | null>(null)
+const taskLogs = ref<TaskLog[]>([])
+const taskDetailLoading = ref(false)
 
 const snapshotText = computed(() =>
   taskDialogTask.value ? JSON.stringify(taskDialogTask.value.snapshot ?? {}, null, 2) : '',
@@ -110,9 +120,24 @@ async function updateStatus(task: TaskRow) {
   }
 }
 
-function openDetail(task: TaskRow) {
+async function openDetail(task: TaskRow) {
+  taskDetailLoading.value = true
+  errorMsg.value = ''
+  taskLogs.value = []
   taskDialogTask.value = task
   taskDialogVisible.value = true
+  try {
+    const [{ data: taskDetail }, { data: logsPayload }] = await Promise.all([
+      http.get<TaskRow>(`/api/tasks/${task.task_id}`),
+      http.get<{ task_id: string; logs: TaskLog[] }>(`/api/tasks/${task.task_id}/logs`),
+    ])
+    taskDialogTask.value = taskDetail
+    taskLogs.value = Array.isArray(logsPayload?.logs) ? logsPayload.logs : []
+  } catch {
+    errorMsg.value = '加载任务详情失败'
+  } finally {
+    taskDetailLoading.value = false
+  }
 }
 
 async function exportTaskJson(task_id: string) {
@@ -126,6 +151,20 @@ async function exportTaskJson(task_id: string) {
     downloadJson(`task_${task_id}.json`, data)
   } catch {
     errorMsg.value = '导出任务失败'
+  }
+}
+
+async function exportTaskLogs(task_id: string) {
+  errorMsg.value = ''
+  try {
+    const { data } = await http.get<{ task_id: string; logs: TaskLog[] }>(`/api/tasks/${task_id}/logs`)
+    if (!data || !Array.isArray(data.logs)) {
+      errorMsg.value = '导出日志失败：返回内容异常'
+      return
+    }
+    downloadJson(`task_logs_${task_id}.json`, data)
+  } catch {
+    errorMsg.value = '导出日志失败'
   }
 }
 
@@ -174,7 +213,7 @@ onMounted(load)
         <el-table-column prop="rounds" label="轮次" width="80" />
         <el-table-column prop="created_at" label="创建时间" min-width="180" />
         <el-table-column prop="task_id" label="任务 ID" min-width="260" show-overflow-tooltip />
-        <el-table-column label="操作" min-width="460">
+        <el-table-column label="操作" min-width="560">
           <template #default="{ row }">
             <div class="ops">
               <el-select v-model="row.status" size="small" style="width: 140px">
@@ -190,6 +229,7 @@ onMounted(load)
               </el-button>
               <el-button size="small" @click="openDetail(row)">详情</el-button>
               <el-button size="small" @click="exportTaskJson(row.task_id)">导出JSON</el-button>
+              <el-button size="small" @click="exportTaskLogs(row.task_id)">导出日志</el-button>
             </div>
           </template>
         </el-table-column>
@@ -197,7 +237,7 @@ onMounted(load)
     </div>
 
     <el-dialog v-model="taskDialogVisible" title="任务详情" width="70%">
-      <div v-if="taskDialogTask">
+      <div v-loading="taskDetailLoading" v-if="taskDialogTask">
         <div class="dialog-meta">
           <div><span class="k">任务名：</span>{{ taskDialogTask.name }}</div>
           <div><span class="k">策略：</span>{{ taskDialogTask.strategy }}</div>
@@ -209,6 +249,19 @@ onMounted(load)
         <div class="dialog-snapshot">
           <div class="dialog-snapshot-title">snapshot</div>
           <el-input type="textarea" :rows="12" :model-value="snapshotText" readonly />
+        </div>
+        <div class="dialog-snapshot">
+          <div class="dialog-snapshot-title">task logs（{{ taskLogs.length }}）</div>
+          <el-table :data="taskLogs" stripe empty-text="暂无任务日志" style="width: 100%">
+            <el-table-column prop="ts" label="时间" min-width="180" />
+            <el-table-column prop="level" label="级别" width="100" />
+            <el-table-column prop="event" label="事件" min-width="180" />
+            <el-table-column label="详情" min-width="320">
+              <template #default="{ row }">
+                <pre class="log-detail">{{ JSON.stringify(row.detail || {}, null, 2) }}</pre>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </div>
     </el-dialog>
@@ -294,6 +347,13 @@ onMounted(load)
 .dialog-snapshot-title {
   font-weight: 700;
   margin-bottom: 8px;
+  color: #334155;
+}
+
+.log-detail {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
   color: #334155;
 }
 </style>

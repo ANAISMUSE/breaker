@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from src.services.task_service import CreateTaskInput, TaskService
 
@@ -13,7 +13,7 @@ class CreateTaskIn(BaseModel):
     name: str
     strategy: str
     rounds: int = 14
-    snapshot: dict = {}
+    snapshot: dict = Field(default_factory=dict)
 
 
 class StatusIn(BaseModel):
@@ -21,7 +21,13 @@ class StatusIn(BaseModel):
 
 
 class SnapshotIn(BaseModel):
-    data: dict = {}
+    data: dict = Field(default_factory=dict)
+
+
+class LogIn(BaseModel):
+    level: str = "info"
+    event: str
+    detail: dict = Field(default_factory=dict)
 
 
 @router.get("")
@@ -46,7 +52,7 @@ def create_task(payload: CreateTaskIn) -> dict:
 def get_task(task_id: str) -> dict:
     row = service.get_task(task_id)
     if not row:
-        return {}
+        raise HTTPException(status_code=404, detail="task not found")
     return row.__dict__
 
 
@@ -54,7 +60,7 @@ def get_task(task_id: str) -> dict:
 def update_status(task_id: str, payload: StatusIn) -> dict:
     row = service.update_status(task_id, payload.status)
     if not row:
-        return {}
+        raise HTTPException(status_code=404, detail="task not found")
     return row.__dict__
 
 
@@ -62,12 +68,38 @@ def update_status(task_id: str, payload: StatusIn) -> dict:
 def append_snapshot(task_id: str, payload: SnapshotIn) -> dict:
     row = service.append_snapshot(task_id, payload.data)
     if not row:
-        return {}
+        raise HTTPException(status_code=404, detail="task not found")
     return row.__dict__
 
 
 @router.get("/{task_id}/export")
 def export_task(task_id: str) -> dict:
     out = service.export_task_json(task_id)
+    if not out:
+        raise HTTPException(status_code=404, detail="task not found")
+    return {"path": out}
+
+
+@router.get("/{task_id}/logs")
+def get_task_logs(task_id: str) -> dict:
+    row = service.get_task(task_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="task not found")
+    return {"task_id": task_id, "logs": service.list_task_logs(task_id)}
+
+
+@router.post("/{task_id}/logs")
+def write_task_log(task_id: str, payload: LogIn) -> dict:
+    row = service.append_task_log(task_id, payload.level, payload.event, payload.detail)
+    if not row:
+        raise HTTPException(status_code=404, detail="task not found")
+    return row.__dict__
+
+
+@router.get("/{task_id}/logs/export")
+def export_task_logs(task_id: str) -> dict:
+    out = service.export_task_logs_json(task_id)
+    if not out:
+        raise HTTPException(status_code=404, detail="task not found")
     return {"path": out}
 
