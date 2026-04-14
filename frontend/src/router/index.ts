@@ -13,9 +13,8 @@ import RegisterView from '@/views/RegisterView.vue'
 import ChangePasswordView from '@/views/ChangePasswordView.vue'
 import CompareHistoryView from '@/views/CompareHistoryView.vue'
 import TasksView from '@/views/TasksView.vue'
-import RiskView from '@/views/RiskView.vue'
-import SemanticGraphView from '@/views/SemanticGraphView.vue'
 import RiskDetailView from '@/views/RiskDetailView.vue'
+import SemanticGraphView from '@/views/SemanticGraphView.vue'
 import UserAdminView from '@/views/UserAdminView.vue'
 import UserProfileView from '@/views/UserProfileView.vue'
 import WorkbenchView from '@/views/WorkbenchView.vue'
@@ -56,7 +55,7 @@ const router = createRouter({
         },
         {
           path: 'analytics/risk',
-          component: RiskView,
+          redirect: '/app/analytics/risk-detail',
         },
         {
           path: 'analytics/risk-detail',

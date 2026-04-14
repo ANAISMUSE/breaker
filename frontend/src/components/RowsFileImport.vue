@@ -5,7 +5,7 @@ import http from '@/api/http'
 const props = withDefaults(
   defineProps<{
     /** Query param for POST /api/ingestion/import */
-    format?: 'auto' | 'douyin' | 'standard'
+    format?: 'auto' | 'douyin' | 'xiaohongshu' | 'weibo' | 'standard'
     accept?: string
     buttonText?: string
   }>(),
@@ -17,12 +17,31 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  imported: [rows: Record<string, unknown>[], meta: { format: string; rowCount: number; filename: string }]
+  imported: [
+    rows: Record<string, unknown>[],
+    meta: {
+      format: string
+      rowCount: number
+      filename: string
+      detectedPlatform: string
+      invalidRowCount: number
+      invalidRows: Array<{ row_index: number; reason: string; content_id: string }>
+      warnings: string[]
+    },
+  ]
   error: [message: string]
 }>()
 
 const busy = ref(false)
-const lastMeta = ref<{ format: string; rowCount: number; filename: string } | null>(null)
+const lastMeta = ref<{
+  format: string
+  rowCount: number
+  filename: string
+  detectedPlatform: string
+  invalidRowCount: number
+  invalidRows: Array<{ row_index: number; reason: string; content_id: string }>
+  warnings: string[]
+} | null>(null)
 
 async function onFile(file: File | null) {
   if (!file || busy.value) return
@@ -36,11 +55,19 @@ async function onFile(file: File | null) {
       format: string
       row_count: number
       filename: string
+      detected_platform: string
+      invalid_row_count: number
+      invalid_rows: Array<{ row_index: number; reason: string; content_id: string }>
+      warnings: string[]
     }>(`/api/ingestion/import?format=${encodeURIComponent(props.format)}`, fd)
     lastMeta.value = {
       format: data.format,
       rowCount: data.row_count,
       filename: data.filename,
+      detectedPlatform: data.detected_platform,
+      invalidRowCount: data.invalid_row_count ?? 0,
+      invalidRows: data.invalid_rows ?? [],
+      warnings: data.warnings ?? [],
     }
     emit('imported', data.rows, lastMeta.value)
   } catch (e: unknown) {
@@ -69,8 +96,10 @@ async function onFile(file: File | null) {
       <el-button :loading="busy" type="primary" plain>{{ buttonText }}</el-button>
     </el-upload>
     <span v-if="lastMeta" class="meta">
-      {{ lastMeta.filename }} · {{ lastMeta.rowCount }} 行 · {{ lastMeta.format }}
+      {{ lastMeta.filename }} · {{ lastMeta.rowCount }} 行 · {{ lastMeta.detectedPlatform }}
+      <template v-if="lastMeta.invalidRowCount > 0"> · 过滤 {{ lastMeta.invalidRowCount }} 行坏数据</template>
     </span>
+    <span v-if="lastMeta?.warnings?.length" class="warn">{{ lastMeta.warnings.join('；') }}</span>
   </span>
 </template>
 
@@ -84,5 +113,9 @@ async function onFile(file: File | null) {
 .meta {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+.warn {
+  font-size: 12px;
+  color: var(--el-color-warning);
 }
 </style>

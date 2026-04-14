@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from math import log2
+import json
+from pathlib import Path
 import pandas as pd
 
 from src.evaluation.index_pipeline import EvaluationResultV2, evaluate_cocoon_pdf36
@@ -10,13 +12,6 @@ from src.evaluation.metrics_v2 import behavior_weight_row, dataframe_embeddings_
 class RiskService:
     def evaluate_overview(self, df: pd.DataFrame, benchmark: dict[str, float]) -> EvaluationResultV2:
         return evaluate_cocoon_pdf36(df, benchmark, mode="static")
-
-    def evaluate_overview_payload(self, df: pd.DataFrame, benchmark: dict[str, float]) -> dict:
-        ev = self.evaluate_overview(df, benchmark)
-        llm_info = self._llm_info(df)
-        payload = ev.__dict__.copy()
-        payload.update(llm_info)
-        return payload
 
     def evaluate_detail(self, df: pd.DataFrame, benchmark: dict[str, float]) -> dict:
         ev = self.evaluate_overview(df, benchmark)
@@ -30,9 +25,14 @@ class RiskService:
         s3_info = self._s3_gini(stance_dist)
         s4_info = self._s4_overlap(topic_dist, benchmark_dist)
 
+        cohort = self._cohort_comparison(df, benchmark, ev)
+        trend = self._trend_30d(df, benchmark)
+
         return {
             "overview": ev.__dict__,
             "llm": self._llm_info(df),
+            "cohort": cohort,
+            "trend_30d": trend,
             "distributions": {
                 "topic": topic_dist,
                 "stance": stance_dist,
@@ -50,6 +50,84 @@ class RiskService:
                 "s4": self._build_s4_suggestion(ev.s4_cognitive_coverage, s4_info, topic_dist, benchmark_dist),
             },
         }
+
+    def _load_group_benchmarks(self) -> dict[str, dict[str, float]]:
+        path = Path("data/group_benchmarks.json")
+        if not path.exists():
+            return {}
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, dict[str, float]] = {}
+        for k, v in raw.items():
+            if isinstance(v, dict):
+                out[str(k)] = {str(kk): float(vv) for kk, vv in v.items() if isinstance(vv, (int, float))}
+        return out
+
+    def _resolve_group_key(self, df: pd.DataFrame) -> str:
+        if not df.empty and "age_group" in df.columns:
+            v = str(df["age_group"].iloc[0] or "").strip()
+            if v:
+                return f"age:{v}"
+        if not df.empty and "persona_preset" in df.columns:
+            v = str(df["persona_preset"].iloc[0] or "").strip()
+            if v:
+                return f"persona:{v}"
+        if not df.empty and "platform" in df.columns:
+            v = str(df["platform"].iloc[0] or "").strip()
+            if v:
+                return f"platform:{v}"
+        return "global"
+
+    def _cohort_comparison(self, df: pd.DataFrame, benchmark: dict[str, float], ev: EvaluationResultV2) -> dict:
+        group_key = self._resolve_group_key(df)
+        catalog = self._load_group_benchmarks()
+        cohort_benchmark = catalog.get(group_key) or catalog.get("global") or benchmark
+        cohort_ev = evaluate_cocoon_pdf36(df, cohort_benchmark, mode="static")
+        return {
+            "group_key": group_key,
+            "benchmark_topics": len(cohort_benchmark),
+            "cohort_overview": cohort_ev.__dict__,
+            "delta_vs_cohort": {
+                "s1": round(ev.s1_content_diversity - cohort_ev.s1_content_diversity, 3),
+                "s2": round(ev.s2_cross_domain - cohort_ev.s2_cross_domain, 3),
+                "s3": round(ev.s3_stance_diversity - cohort_ev.s3_stance_diversity, 3),
+                "s4": round(ev.s4_cognitive_coverage - cohort_ev.s4_cognitive_coverage, 3),
+                "c": round(ev.cocoon_index - cohort_ev.cocoon_index, 3),
+            },
+        }
+
+    def _trend_30d(self, df: pd.DataFrame, benchmark: dict[str, float]) -> dict:
+        if df.empty or "timestamp" not in df.columns:
+            return {"points": [], "window_days": 30}
+        work = df.copy()
+        work["timestamp"] = pd.to_datetime(work["timestamp"], errors="coerce")
+        work = work.dropna(subset=["timestamp"]).sort_values("timestamp")
+        if work.empty:
+            return {"points": [], "window_days": 30}
+        end_day = work["timestamp"].max().normalize()
+        start_day = end_day - pd.Timedelta(days=29)
+        trend_points: list[dict] = []
+        for d in pd.date_range(start_day, end_day, freq="D"):
+            cut = work[work["timestamp"] <= (d + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))]
+            if cut.empty:
+                continue
+            ev = evaluate_cocoon_pdf36(cut, benchmark, mode="static")
+            trend_points.append(
+                {
+                    "date": d.strftime("%Y-%m-%d"),
+                    "row_count": int(len(cut)),
+                    "cocoon_index": ev.cocoon_index,
+                    "s1": ev.s1_content_diversity,
+                    "s2": ev.s2_cross_domain,
+                    "s3": ev.s3_stance_diversity,
+                    "s4": ev.s4_cognitive_coverage,
+                }
+            )
+        return {"points": trend_points, "window_days": 30}
 
     def _llm_info(self, df: pd.DataFrame) -> dict:
         emb = dataframe_embeddings_matrix(df)

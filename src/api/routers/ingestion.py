@@ -19,17 +19,18 @@ router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 @router.post("/import")
 async def import_rows(
     file: UploadFile = File(...),
-    import_format: str = Query("auto", alias="format", description="auto | douyin | standard"),
+    import_format: str = Query("auto", alias="format", description="auto | douyin | xiaohongshu | weibo | standard"),
     semantic_enhance: bool = Query(True, description="Run LLM semantic extraction and embeddings"),
     anonymize: bool = Query(False, description="Anonymize records before returning"),
 ) -> dict:
     name = file.filename or "upload.json"
     raw_fmt = (import_format or "auto").strip().lower()
-    if raw_fmt not in {"auto", "douyin", "standard"}:
-        raise HTTPException(status_code=400, detail="format 必须为 auto、douyin 或 standard")
+    if raw_fmt not in {"auto", "douyin", "xiaohongshu", "weibo", "standard"}:
+        raise HTTPException(status_code=400, detail="format 必须为 auto、douyin、xiaohongshu、weibo 或 standard")
     try:
         content = await file.read()
-        df, used = import_bytes(content, name, raw_fmt)
+        result = import_bytes(content, name, raw_fmt)
+        df = result.dataframe
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -53,9 +54,13 @@ async def import_rows(
         records = [anonymize_record(row) for row in records]
     return {
         "rows": jsonable_encoder(records),
-        "format": used,
+        "format": result.detected_format,
+        "detected_platform": result.detected_platform,
         "row_count": len(records),
         "filename": name,
+        "invalid_row_count": result.invalid_row_count,
+        "invalid_rows": result.invalid_rows,
+        "warnings": result.warnings,
         "semantic_enhanced": semantic_applied,
         "llm_provider": llm_health.provider,
         "embedding_model": llm_health.embedding_model,

@@ -33,6 +33,7 @@ interface ReplayPayload {
 }
 
 const REPLAY_KEY = 'compare.replay.payload'
+const REPLAY_CONTINUE_LADDER_KEY = 'compare.replay.continue_ladder'
 
 const router = useRouter()
 const loading = ref(false)
@@ -85,6 +86,22 @@ function replay(row: CompareHistoryRecord) {
     rounds: Number(row.rounds || 10),
   }
   localStorage.setItem(REPLAY_KEY, JSON.stringify(payload))
+  localStorage.removeItem(REPLAY_CONTINUE_LADDER_KEY)
+  router.push('/app/analytics/compare')
+}
+
+function continueLadder(row: CompareHistoryRecord) {
+  if (!Array.isArray(row.rows) || row.rows.length === 0) {
+    ElMessage.warning('该记录未包含 rows，暂不可继续执行')
+    return
+  }
+  const payload: ReplayPayload = {
+    rows: row.rows,
+    benchmark: row.benchmark ?? {},
+    rounds: Number(row.rounds || 10),
+  }
+  localStorage.setItem(REPLAY_KEY, JSON.stringify(payload))
+  localStorage.setItem(REPLAY_CONTINUE_LADDER_KEY, '1')
   router.push('/app/analytics/compare')
 }
 
@@ -124,9 +141,12 @@ onMounted(loadRecords)
         <template #default="{ row }">{{ bestDrop(row) }}</template>
       </el-table-column>
       <el-table-column prop="record_id" label="记录ID" min-width="240" show-overflow-tooltip />
-      <el-table-column label="操作" min-width="120">
+      <el-table-column label="操作" min-width="200">
         <template #default="{ row }">
-          <el-button size="small" type="primary" plain @click="replay(row)">回放</el-button>
+          <div class="ops">
+            <el-button size="small" type="primary" plain @click="replay(row)">回放</el-button>
+            <el-button size="small" plain @click="continueLadder(row)">继续执行</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -167,5 +187,10 @@ onMounted(loadRecords)
 .count {
   font-size: 13px;
   color: #475569;
+}
+.ops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

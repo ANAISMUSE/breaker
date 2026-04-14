@@ -49,7 +49,18 @@ function isTwinBuildPayload(v: unknown): v is TwinBuildPayload {
   )
 }
 
-function onImportedRows(rows: Record<string, unknown>[]) {
+function onImportedRows(
+  rows: Record<string, unknown>[],
+  _meta?: {
+    format: string
+    rowCount: number
+    filename: string
+    detectedPlatform: string
+    invalidRowCount: number
+    invalidRows: Array<{ row_index: number; reason: string; content_id: string }>
+    warnings: string[]
+  },
+) {
   errorMsg.value = ''
   rowsText.value = JSON.stringify(rows, null, 2)
 }
@@ -393,13 +404,17 @@ onMounted(loadRecords)
 }
 .grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(360px, 1.05fr) minmax(620px, 1.45fr);
   gap: 12px;
   align-items: start;
 }
 .left-ta :deep(textarea) {
   font-family: ui-monospace, monospace;
   font-size: 12px;
+  min-height: 620px;
+}
+.grid :deep(.preview-root) {
+  min-height: 620px;
 }
 .records {
   margin-top: 18px;

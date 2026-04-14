@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from fastapi import APIRouter
 from pydantic import BaseModel
+from src.compliance.audit import list_audit_logs
 
 from src.services.compliance_service import ComplianceService
 
@@ -23,21 +21,14 @@ class AuditIn(BaseModel):
     detail: dict = {}
 
 
+class PolicyIn(BaseModel):
+    auto_cleanup_enabled: bool = False
+    retention_hours: int = 24
+
+
 @router.get("/audit")
 def list_audit(limit: int = 100) -> list[dict]:
-    p = Path("data/audit_log.jsonl")
-    if not p.exists():
-        return []
-    rows: list[dict] = []
-    for line in p.read_text(encoding="utf-8").splitlines():
-        txt = line.strip()
-        if not txt:
-            continue
-        try:
-            rows.append(json.loads(txt))
-        except json.JSONDecodeError:
-            continue
-    return rows[-limit:][::-1]
+    return list_audit_logs(limit=limit)
 
 
 @router.post("/audit")
@@ -50,4 +41,24 @@ def write_audit(payload: AuditIn) -> dict:
 def wipe(payload: WipeIn) -> dict:
     removed = service.wipe(payload.vector_store, payload.uploads, payload.tasks)
     return {"removed": removed}
+
+
+@router.get("/policy")
+def get_policy() -> dict:
+    return service.get_policy()
+
+
+@router.post("/policy")
+def set_policy(payload: PolicyIn) -> dict:
+    return service.set_policy(payload.auto_cleanup_enabled, payload.retention_hours)
+
+
+@router.post("/auto-cleanup")
+def run_auto_cleanup() -> dict:
+    return service.run_auto_cleanup()
+
+
+@router.get("/evidence")
+def export_evidence(limit: int = 200) -> dict:
+    return {"path": service.export_evidence(limit=limit)}
 

@@ -9,6 +9,7 @@ import { demoBenchmark, demoRows } from '@/constants/demoData'
 
 const STRAT_ORDER = ['baseline', 'aggressive', 'ladder', 'mixed'] as const
 const REPLAY_KEY = 'compare.replay.payload'
+const REPLAY_CONTINUE_LADDER_KEY = 'compare.replay.continue_ladder'
 
 const STRAT_ZH: Record<string, string> = {
   baseline: '基线（偏沉浸）',
@@ -40,6 +41,15 @@ interface CompareResponse {
   trend_option: Record<string, unknown>
 }
 
+interface LadderExecution {
+  execution_id: string
+  user_id: string
+  current_step_index: number
+  status: string
+  plan_steps: Array<{ level: string; topic: string; reason: string }>
+  history: Array<Record<string, unknown>>
+}
+
 function isStrategyBlock(v: unknown): v is StrategyBlock {
   if (!v || typeof v !== 'object' || !('series' in v)) return false
   const s = (v as { series: unknown }).series
@@ -54,6 +64,11 @@ const loading = ref(false)
 const errorMsg = ref('')
 const comparePayload = ref<CompareResponse | null>(null)
 const bestInfo = ref<{ name: string; drop: number; staticCocoon: number; reason: string } | null>(null)
+const ladderExecutionId = ref('')
+const ladderState = ref<LadderExecution | null>(null)
+const ladderLoading = ref(false)
+const ladderFeedbackScore = ref(0)
+const ladderFeedbackNote = ref('')
 
 const trendEl = ref<HTMLDivElement | null>(null)
 const barEl = ref<HTMLDivElement | null>(null)
@@ -251,7 +266,18 @@ async function refreshCharts() {
   dropChart?.resize()
 }
 
-function onImportedRows(rows: Record<string, unknown>[]) {
+function onImportedRows(
+  rows: Record<string, unknown>[],
+  _meta?: {
+    format: string
+    rowCount: number
+    filename: string
+    detectedPlatform: string
+    invalidRowCount: number
+    invalidRows: Array<{ row_index: number; reason: string; content_id: string }>
+    warnings: string[]
+  },
+) {
   errorMsg.value = ''
   rowsText.value = JSON.stringify(rows, null, 2)
 }
@@ -264,6 +290,82 @@ function applyReplayPreset(payload: ReplayPayload) {
   rowsText.value = JSON.stringify(payload.rows ?? [], null, 2)
   benchmarkText.value = JSON.stringify(payload.benchmark ?? {}, null, 2)
   rounds.value = Math.max(1, Number(payload.rounds || 10))
+}
+
+async function createLadderPlan() {
+  ladderLoading.value = true
+  errorMsg.value = ''
+  try {
+    const rows = JSON.parse(rowsText.value) as Array<Record<string, unknown>>
+    const benchmark = JSON.parse(benchmarkText.value) as Record<string, number>
+    const { data } = await http.post<LadderExecution>('/api/simulation/ladder/plan', {
+      rows,
+      benchmark,
+      user_id: String((rows[0]?.user_id as string) || 'unknown'),
+    })
+    ladderExecutionId.value = data.execution_id
+    ladderState.value = data
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '创建阶梯执行计划失败'
+  } finally {
+    ladderLoading.value = false
+  }
+}
+
+async function refreshLadderState() {
+  if (!ladderExecutionId.value) return
+  ladderLoading.value = true
+  try {
+    const { data } = await http.get<LadderExecution>(`/api/simulation/ladder/${ladderExecutionId.value}`)
+    ladderState.value = data
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '加载阶梯执行状态失败'
+  } finally {
+    ladderLoading.value = false
+  }
+}
+
+async function executeLadderStep() {
+  if (!ladderExecutionId.value) return
+  ladderLoading.value = true
+  try {
+    const { data } = await http.post<LadderExecution>(`/api/simulation/ladder/${ladderExecutionId.value}/execute-step`)
+    ladderState.value = data
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '执行阶梯步骤失败'
+  } finally {
+    ladderLoading.value = false
+  }
+}
+
+async function nextLadderStep() {
+  if (!ladderExecutionId.value) return
+  ladderLoading.value = true
+  try {
+    const { data } = await http.post<LadderExecution>(`/api/simulation/ladder/${ladderExecutionId.value}/next-step`)
+    ladderState.value = data
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '推进阶梯步骤失败'
+  } finally {
+    ladderLoading.value = false
+  }
+}
+
+async function submitLadderFeedback() {
+  if (!ladderExecutionId.value) return
+  ladderLoading.value = true
+  try {
+    const { data } = await http.post<LadderExecution>(`/api/simulation/ladder/${ladderExecutionId.value}/feedback`, {
+      score: ladderFeedbackScore.value,
+      note: ladderFeedbackNote.value.trim(),
+    })
+    ladderState.value = data
+    ladderFeedbackNote.value = ''
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '提交反馈失败'
+  } finally {
+    ladderLoading.value = false
+  }
 }
 
 function applyBuiltInPreset(id: string) {
@@ -285,10 +387,14 @@ function maybeLoadReplayPayload() {
     if (!Array.isArray(parsed.rows) || typeof parsed.benchmark !== 'object') return
     applyReplayPreset(parsed)
     ElMessage.success('已加载历史回放数据')
+    if (localStorage.getItem(REPLAY_CONTINUE_LADDER_KEY) === '1') {
+      createLadderPlan()
+    }
   } catch {
     ElMessage.warning('检测到回放数据，但解析失败')
   } finally {
     localStorage.removeItem(REPLAY_KEY)
+    localStorage.removeItem(REPLAY_CONTINUE_LADDER_KEY)
   }
 }
 
@@ -479,6 +585,25 @@ onBeforeUnmount(() => {
       <div class="toolbar">
         <span class="tb-label">rows</span>
         <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
+        <el-button plain :loading="ladderLoading" @click="createLadderPlan">创建阶梯执行计划</el-button>
+        <el-button plain :disabled="!ladderExecutionId" :loading="ladderLoading" @click="refreshLadderState">刷新执行状态</el-button>
+      </div>
+
+      <div v-if="ladderState" class="ladder-card">
+        <div class="ladder-head">
+          <span>执行ID：{{ ladderState.execution_id }}</span>
+          <span>状态：{{ ladderState.status }}</span>
+          <span>当前步骤：{{ ladderState.current_step_index }} / {{ ladderState.plan_steps.length }}</span>
+        </div>
+        <div class="ladder-actions">
+          <el-button size="small" type="primary" :loading="ladderLoading" @click="executeLadderStep">执行当前步骤</el-button>
+          <el-button size="small" :loading="ladderLoading" @click="nextLadderStep">推进下一步</el-button>
+        </div>
+        <div class="ladder-feedback">
+          <el-input-number v-model="ladderFeedbackScore" :min="-1" :max="1" :step="0.1" />
+          <el-input v-model="ladderFeedbackNote" placeholder="记录本轮反馈（可选）" />
+          <el-button size="small" :loading="ladderLoading" @click="submitLadderFeedback">提交反馈</el-button>
+        </div>
       </div>
 
       <div v-if="comparePayload" class="viz">
@@ -594,6 +719,31 @@ onBeforeUnmount(() => {
 .tb-label {
   font-size: 13px;
   color: #334155;
+}
+.ladder-card {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.ladder-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #334155;
+  font-size: 13px;
+}
+.ladder-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+.ladder-feedback {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: 8px;
 }
 .viz {
   display: grid;

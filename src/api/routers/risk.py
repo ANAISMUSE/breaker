@@ -16,12 +16,6 @@ class EvalIn(BaseModel):
     benchmark: dict[str, float]
 
 
-@router.post("/overview")
-def risk_overview(payload: EvalIn) -> dict:
-    df = ensure_profile_dataframe(pd.DataFrame(payload.rows))
-    return service.evaluate_overview_payload(df, payload.benchmark)
-
-
 @router.post("/detail")
 def risk_detail(payload: EvalIn) -> dict:
     df = ensure_profile_dataframe(pd.DataFrame(payload.rows))

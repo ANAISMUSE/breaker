@@ -22,6 +22,20 @@ def append_audit_log(event: str, detail: dict | None = None) -> None:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
+def list_audit_logs(limit: int = 100) -> list[dict]:
+    p = _audit_path()
+    rows: list[dict] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        txt = line.strip()
+        if not txt:
+            continue
+        try:
+            rows.append(json.loads(txt))
+        except json.JSONDecodeError:
+            continue
+    return rows[-max(1, int(limit)) :][::-1]
+
+
 def wipe_local_session_data(
     also_vector_store: bool = True,
     also_uploads: bool = True,
