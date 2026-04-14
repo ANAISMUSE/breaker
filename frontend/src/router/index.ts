@@ -14,7 +14,10 @@ import ChangePasswordView from '@/views/ChangePasswordView.vue'
 import CompareHistoryView from '@/views/CompareHistoryView.vue'
 import TasksView from '@/views/TasksView.vue'
 import RiskView from '@/views/RiskView.vue'
+import SemanticGraphView from '@/views/SemanticGraphView.vue'
 import RiskDetailView from '@/views/RiskDetailView.vue'
+import UserAdminView from '@/views/UserAdminView.vue'
+import UserProfileView from '@/views/UserProfileView.vue'
 import WorkbenchView from '@/views/WorkbenchView.vue'
 
 const router = createRouter({
@@ -60,6 +63,10 @@ const router = createRouter({
           component: RiskDetailView,
         },
         {
+          path: 'analytics/semantic-graph',
+          component: SemanticGraphView,
+        },
+        {
           path: 'analytics/profile',
           component: ProfileView,
         },
@@ -87,6 +94,15 @@ const router = createRouter({
           path: 'account/change-password',
           component: ChangePasswordView,
         },
+        {
+          path: 'account/profile',
+          component: UserProfileView,
+        },
+        {
+          path: 'account/users',
+          component: UserAdminView,
+          meta: { roles: ['admin'] },
+        },
       ],
     },
   ],
@@ -94,8 +110,16 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  const currentRole = (auth.role || 'user').toLowerCase()
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  const requiredRoles = to.matched.flatMap((record) => {
+    const roles = record.meta.roles
+    return Array.isArray(roles) ? roles.map((role) => String(role).toLowerCase()) : []
+  })
+  if (requiredRoles.length > 0 && !requiredRoles.includes(currentRole)) {
+    return '/app/account/profile'
   }
   if ((to.name === 'login' || to.name === 'register') && auth.isAuthenticated) {
     return '/app'

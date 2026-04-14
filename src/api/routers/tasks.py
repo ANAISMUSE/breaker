@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from src.services.task_service import CreateTaskInput, TaskService
@@ -81,11 +82,28 @@ def export_task(task_id: str) -> dict:
 
 
 @router.get("/{task_id}/logs")
-def get_task_logs(task_id: str) -> dict:
+def get_task_logs(
+    task_id: str,
+    level: str | None = None,
+    event: str | None = None,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> dict:
     row = service.get_task(task_id)
     if not row:
         raise HTTPException(status_code=404, detail="task not found")
-    return {"task_id": task_id, "logs": service.list_task_logs(task_id)}
+    payload = service.list_task_logs(
+        task_id,
+        level=level,
+        event=event,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        page=page,
+        page_size=page_size,
+    )
+    return {"task_id": task_id, **payload}
 
 
 @router.post("/{task_id}/logs")
@@ -102,4 +120,23 @@ def export_task_logs(task_id: str) -> dict:
     if not out:
         raise HTTPException(status_code=404, detail="task not found")
     return {"path": out}
+
+
+@router.get("/{task_id}/logs/export.csv")
+def export_task_logs_csv(
+    task_id: str,
+    level: str | None = None,
+    event: str | None = None,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+) -> Response:
+    out = service.export_task_logs_csv(task_id, level=level, event=event, start_ts=start_ts, end_ts=end_ts)
+    if not out:
+        raise HTTPException(status_code=404, detail="task not found")
+    filename, content = out
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 

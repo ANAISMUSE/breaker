@@ -68,6 +68,21 @@ if HAS_SQLALCHEMY:
         Column("created_at", DateTime(), nullable=False),
     )
 
+    users_table = Table(
+        "users",
+        metadata,
+        Column("id", Integer(), primary_key=True, autoincrement=True),
+        Column("username", String(64), nullable=False, unique=True),
+        Column("password_hash", String(128), nullable=False),
+        Column("role", String(16), nullable=False),
+        Column("nickname", String(64), nullable=True),
+        Column("email", String(255), nullable=True),
+        Column("phone", String(32), nullable=True),
+        Column("avatar", String(512), nullable=True),
+        Column("created_at", DateTime(), nullable=False),
+        Column("updated_at", DateTime(), nullable=False),
+    )
+
     def ensure_mysql_database_exists(mysql_url: str) -> None:
         """若连接串中的库尚未创建，则在 MySQL 上执行 CREATE DATABASE（避免 1049 Unknown database）。"""
         u = make_url(mysql_url)
@@ -107,6 +122,19 @@ class MySqlStore:
         if HAS_SQLALCHEMY:
             ensure_mysql_database_exists(settings.mysql_url)
         metadata.create_all(self.engine)
+        self._ensure_users_schema()
+
+    def _ensure_users_schema(self) -> None:
+        statements = [
+            "ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL",
+        ]
+        for stmt in statements:
+            try:
+                with self.engine.begin() as conn:
+                    conn.execute(text(stmt))
+            except Exception:
+                # 兼容老库：列已存在时忽略，避免启动失败。
+                _log.debug("Skip users schema patch: %s", stmt, exc_info=True)
 
     def list_devices(self) -> list[dict[str, Any]]:
         stmt = select(devices_table).order_by(devices_table.c.last_seen.desc())
@@ -306,4 +334,108 @@ class MySqlStore:
             return
         with self.engine.begin() as conn:
             conn.execute(tasks_table.update().where(tasks_table.c.task_id == task_id).values(**payload))
+
+    def _format_user_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "username": row["username"],
+            "password_hash": row["password_hash"],
+            "role": row["role"],
+            "nickname": row.get("nickname"),
+            "email": row.get("email"),
+            "phone": row.get("phone"),
+            "avatar": row.get("avatar"),
+            "created_at": row["created_at"].isoformat() + "Z",
+            "updated_at": row["updated_at"].isoformat() + "Z",
+        }
+
+    def ensure_admin_user(self, password_hash: str) -> None:
+        now = datetime.utcnow()
+        stmt = mysql_insert(users_table).values(
+            username="admin",
+            password_hash=password_hash,
+            role="admin",
+            nickname="系统管理员",
+            email=None,
+            phone=None,
+            avatar=None,
+            created_at=now,
+            updated_at=now,
+        )
+        stmt = stmt.on_duplicate_key_update(username=stmt.inserted.username)
+        with self.engine.begin() as conn:
+            conn.execute(stmt)
+
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        stmt = select(users_table).where(users_table.c.username == username)
+        with self.engine.connect() as conn:
+            row = conn.execute(stmt).mappings().first()
+        if not row:
+            return None
+        return self._format_user_row(row)
+
+    def list_users(self) -> list[dict[str, Any]]:
+        stmt = select(users_table).order_by(users_table.c.created_at.desc())
+        with self.engine.connect() as conn:
+            rows = conn.execute(stmt).mappings().all()
+        return [self._format_user_row(row) for row in rows]
+
+    def create_user(self, row: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.utcnow()
+        payload = {
+            "username": row["username"],
+            "password_hash": row["password_hash"],
+            "role": row["role"],
+            "nickname": row.get("nickname"),
+            "email": row.get("email"),
+            "phone": row.get("phone"),
+            "avatar": row.get("avatar"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.engine.begin() as conn:
+            conn.execute(users_table.insert().values(**payload))
+        created = self.get_user_by_username(str(row["username"]))
+        if not created:
+            raise RuntimeError("failed_to_create_user")
+        return created
+
+    def update_user_password(self, username: str, password_hash: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                users_table.update()
+                .where(users_table.c.username == username)
+                .values(password_hash=password_hash, updated_at=datetime.utcnow())
+            )
+        return bool(result.rowcount and result.rowcount > 0)
+
+    def update_user_profile(
+        self,
+        username: str,
+        *,
+        nickname: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
+        avatar: str | None = None,
+    ) -> dict[str, Any] | None:
+        payload: dict[str, Any] = {
+            "nickname": nickname,
+            "email": email,
+            "phone": phone,
+            "avatar": avatar,
+            "updated_at": datetime.utcnow(),
+        }
+        with self.engine.begin() as conn:
+            result = conn.execute(users_table.update().where(users_table.c.username == username).values(**payload))
+        if not (result.rowcount and result.rowcount > 0):
+            return None
+        return self.get_user_by_username(username)
+
+    def update_user_role(self, username: str, role: str) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                users_table.update().where(users_table.c.username == username).values(role=role, updated_at=datetime.utcnow())
+            )
+        if not (result.rowcount and result.rowcount > 0):
+            return None
+        return self.get_user_by_username(username)
 

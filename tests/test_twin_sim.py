@@ -56,3 +56,4 @@ def test_compare_strategies_runs() -> None:
     out = compare_strategies(profile, df, bench, rounds=3, seed=1)
     assert "_best" in out
     assert BreakoutStrategy.baseline.value in out
+    assert "explanation" in out[BreakoutStrategy.baseline.value]

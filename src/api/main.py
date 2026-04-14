@@ -11,13 +11,17 @@ from fastapi.staticfiles import StaticFiles
 from src.api.routers.auth import router as auth_router
 from src.api.routers.analytics import router as analytics_router
 from src.api.routers.ingestion import router as ingestion_router
+from src.api.routers.llm import router as llm_router
 from src.api.routers.compliance import router as compliance_router
 from src.api.routers.devices import router as devices_router
 from src.api.routers.persona import router as persona_router
+from src.api.routers.realtime import router as realtime_router
 from src.api.routers.risk import router as risk_router
 from src.api.routers.simulation import router as simulation_router
 from src.api.routers.tasks import router as tasks_router
+from src.api.routers.users import router as users_router
 from src.api.routers.workbench import router as workbench_router
+from src.api.routers.workflow import router as workflow_router
 from src.storage.mysql_store import MySqlStore
 
 API_PREFIX = "/api"
@@ -58,15 +62,19 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth_router, prefix=API_PREFIX)
+    app.include_router(users_router, prefix=API_PREFIX)
     app.include_router(ingestion_router, prefix=API_PREFIX)
+    app.include_router(llm_router, prefix=API_PREFIX)
     app.include_router(tasks_router, prefix=API_PREFIX)
     app.include_router(devices_router, prefix=API_PREFIX)
     app.include_router(risk_router, prefix=API_PREFIX)
     app.include_router(analytics_router, prefix=API_PREFIX)
     app.include_router(persona_router, prefix=API_PREFIX)
+    app.include_router(realtime_router, prefix=API_PREFIX)
     app.include_router(simulation_router, prefix=API_PREFIX)
     app.include_router(compliance_router, prefix=API_PREFIX)
     app.include_router(workbench_router, prefix=API_PREFIX)
+    app.include_router(workflow_router, prefix=API_PREFIX)
 
     @app.get("/health")
     def health_root() -> dict:

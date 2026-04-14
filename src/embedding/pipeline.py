@@ -15,17 +15,18 @@ def build_semantic_vector_store(
 
     for row in df.to_dict(orient="records"):
         # Stage-1: multimodal understanding/description by Omni model
-        description = client.describe_multimodal_content(
+        extraction = client.provider.extract_semantics(
             text=str(row.get("text", "")),
             image_url=str(row.get("image_url", "")) or None,
             video_hint=str(row.get("video_url", "")) or None,
         )
-        parsed = client.parse_structured_description(description)
-        if parsed.get("topic"):
-            row["topic"] = parsed["topic"]
-        row["stance"] = parsed.get("stance", row.get("stance", "neutral"))
-        row["emotion_score"] = parsed.get("emotion_score", row.get("emotion_score", 3))
-        merged_for_embedding = f"{str(row.get('text', ''))}\n{parsed.get('summary', '')}".strip()
+        if extraction.topic:
+            row["topic"] = extraction.topic
+        row["stance"] = extraction.stance or row.get("stance", "neutral")
+        row["emotion_score"] = extraction.emotion_score or row.get("emotion_score", 3)
+        row["semantic_summary"] = extraction.summary
+        row["semantic_description"] = extraction.raw_description
+        merged_for_embedding = f"{str(row.get('text', ''))}\n{extraction.summary}".strip()
         enriched_rows.append(row)
 
         # Stage-2: semantic embedding for retrieval/evaluation
@@ -42,8 +43,8 @@ def build_semantic_vector_store(
                 "topic": row.get("topic"),
                 "timestamp": str(row.get("timestamp")),
                 "platform": row.get("platform"),
-                "semantic_description": description,
-                "semantic_summary": parsed.get("summary", ""),
+                "semantic_description": extraction.raw_description,
+                "semantic_summary": extraction.summary,
                 "stance": row.get("stance"),
                 "emotion_score": row.get("emotion_score"),
             },

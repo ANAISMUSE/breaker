@@ -20,6 +20,15 @@ interface TaskLog {
   detail: Record<string, unknown>
 }
 
+interface TaskLogsPayload {
+  task_id: string
+  logs: TaskLog[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
 const tasks = ref<TaskRow[]>([])
 const loading = ref(true)
 const errorMsg = ref('')
@@ -41,6 +50,14 @@ const taskDialogVisible = ref(false)
 const taskDialogTask = ref<TaskRow | null>(null)
 const taskLogs = ref<TaskLog[]>([])
 const taskDetailLoading = ref(false)
+const snapshotAppendText = ref('{}')
+const snapshotAppending = ref(false)
+const logQueryLevel = ref('')
+const logQueryEvent = ref('')
+const logQueryTimeRange = ref<string[]>([])
+const logPage = ref(1)
+const logPageSize = ref(10)
+const logTotal = ref(0)
 
 const snapshotText = computed(() =>
   taskDialogTask.value ? JSON.stringify(taskDialogTask.value.snapshot ?? {}, null, 2) : '',
@@ -48,6 +65,15 @@ const snapshotText = computed(() =>
 
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -120,23 +146,95 @@ async function updateStatus(task: TaskRow) {
   }
 }
 
-async function openDetail(task: TaskRow) {
+async function loadTaskDetail(task_id: string) {
   taskDetailLoading.value = true
   errorMsg.value = ''
-  taskLogs.value = []
-  taskDialogTask.value = task
-  taskDialogVisible.value = true
   try {
     const [{ data: taskDetail }, { data: logsPayload }] = await Promise.all([
-      http.get<TaskRow>(`/api/tasks/${task.task_id}`),
-      http.get<{ task_id: string; logs: TaskLog[] }>(`/api/tasks/${task.task_id}/logs`),
+      http.get<TaskRow>(`/api/tasks/${task_id}`),
+      http.get<TaskLogsPayload>(`/api/tasks/${task_id}/logs`, {
+        params: {
+          level: logQueryLevel.value || undefined,
+          event: logQueryEvent.value || undefined,
+          start_ts: logQueryTimeRange.value[0] || undefined,
+          end_ts: logQueryTimeRange.value[1] || undefined,
+          page: logPage.value,
+          page_size: logPageSize.value,
+        },
+      }),
     ])
     taskDialogTask.value = taskDetail
     taskLogs.value = Array.isArray(logsPayload?.logs) ? logsPayload.logs : []
+    logTotal.value = Number.isFinite(logsPayload?.total) ? logsPayload.total : taskLogs.value.length
   } catch {
     errorMsg.value = '加载任务详情失败'
   } finally {
     taskDetailLoading.value = false
+  }
+}
+
+async function openDetail(task: TaskRow) {
+  taskLogs.value = []
+  snapshotAppendText.value = '{}'
+  logQueryLevel.value = ''
+  logQueryEvent.value = ''
+  logQueryTimeRange.value = []
+  logPage.value = 1
+  logPageSize.value = 10
+  logTotal.value = 0
+  taskDialogTask.value = task
+  taskDialogVisible.value = true
+  await loadTaskDetail(task.task_id)
+}
+
+async function applyLogFilter() {
+  if (!taskDialogTask.value) {
+    return
+  }
+  logPage.value = 1
+  await loadTaskDetail(taskDialogTask.value.task_id)
+}
+
+async function onLogPageChange(page: number) {
+  if (!taskDialogTask.value) {
+    return
+  }
+  logPage.value = page
+  await loadTaskDetail(taskDialogTask.value.task_id)
+}
+
+async function onLogPageSizeChange(size: number) {
+  if (!taskDialogTask.value) {
+    return
+  }
+  logPageSize.value = size
+  logPage.value = 1
+  await loadTaskDetail(taskDialogTask.value.task_id)
+}
+
+async function appendSnapshotFromDialog() {
+  if (!taskDialogTask.value) {
+    return
+  }
+  let parsed: Record<string, unknown> = {}
+  try {
+    const raw = JSON.parse(snapshotAppendText.value || '{}') as unknown
+    parsed = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+  } catch {
+    errorMsg.value = '追加 snapshot 失败：请输入合法 JSON 对象'
+    return
+  }
+  snapshotAppending.value = true
+  errorMsg.value = ''
+  try {
+    await http.post(`/api/tasks/${taskDialogTask.value.task_id}/snapshots`, { data: parsed })
+    snapshotAppendText.value = '{}'
+    await loadTaskDetail(taskDialogTask.value.task_id)
+    await load()
+  } catch {
+    errorMsg.value = '追加 snapshot 失败'
+  } finally {
+    snapshotAppending.value = false
   }
 }
 
@@ -157,7 +255,9 @@ async function exportTaskJson(task_id: string) {
 async function exportTaskLogs(task_id: string) {
   errorMsg.value = ''
   try {
-    const { data } = await http.get<{ task_id: string; logs: TaskLog[] }>(`/api/tasks/${task_id}/logs`)
+    const { data } = await http.get<TaskLogsPayload>(`/api/tasks/${task_id}/logs`, {
+      params: { page: 1, page_size: 1000 },
+    })
     if (!data || !Array.isArray(data.logs)) {
       errorMsg.value = '导出日志失败：返回内容异常'
       return
@@ -165,6 +265,40 @@ async function exportTaskLogs(task_id: string) {
     downloadJson(`task_logs_${task_id}.json`, data)
   } catch {
     errorMsg.value = '导出日志失败'
+  }
+}
+
+async function exportTaskLogsCsv(task_id: string) {
+  errorMsg.value = ''
+  try {
+    const response = await http.get<Blob>(`/api/tasks/${task_id}/logs/export.csv`, {
+      params: { page: 1, page_size: 1000 },
+      responseType: 'blob',
+    })
+    downloadBlob(`task_logs_${task_id}.csv`, response.data)
+  } catch {
+    errorMsg.value = '导出日志 CSV 失败'
+  }
+}
+
+async function exportFilteredLogsCsv() {
+  if (!taskDialogTask.value) {
+    return
+  }
+  errorMsg.value = ''
+  try {
+    const response = await http.get<Blob>(`/api/tasks/${taskDialogTask.value.task_id}/logs/export.csv`, {
+      params: {
+        level: logQueryLevel.value || undefined,
+        event: logQueryEvent.value || undefined,
+        start_ts: logQueryTimeRange.value[0] || undefined,
+        end_ts: logQueryTimeRange.value[1] || undefined,
+      },
+      responseType: 'blob',
+    })
+    downloadBlob(`task_logs_${taskDialogTask.value.task_id}_filtered.csv`, response.data)
+  } catch {
+    errorMsg.value = '导出筛选日志 CSV 失败'
   }
 }
 
@@ -229,7 +363,8 @@ onMounted(load)
               </el-button>
               <el-button size="small" @click="openDetail(row)">详情</el-button>
               <el-button size="small" @click="exportTaskJson(row.task_id)">导出JSON</el-button>
-              <el-button size="small" @click="exportTaskLogs(row.task_id)">导出日志</el-button>
+              <el-button size="small" @click="exportTaskLogs(row.task_id)">导出日志JSON</el-button>
+              <el-button size="small" @click="exportTaskLogsCsv(row.task_id)">导出日志CSV</el-button>
             </div>
           </template>
         </el-table-column>
@@ -251,7 +386,39 @@ onMounted(load)
           <el-input type="textarea" :rows="12" :model-value="snapshotText" readonly />
         </div>
         <div class="dialog-snapshot">
+          <div class="dialog-snapshot-title">追加 snapshot（JSON）</div>
+          <el-input
+            v-model="snapshotAppendText"
+            type="textarea"
+            :rows="4"
+            placeholder='例如：{"round":1,"note":"manual check"}'
+          />
+          <div class="append-actions">
+            <el-button type="primary" size="small" :loading="snapshotAppending" @click="appendSnapshotFromDialog">
+              追加 snapshot
+            </el-button>
+          </div>
+        </div>
+        <div class="dialog-snapshot">
           <div class="dialog-snapshot-title">task logs（{{ taskLogs.length }}）</div>
+          <div class="log-filters">
+            <el-select v-model="logQueryLevel" placeholder="级别筛选" style="width: 140px" clearable>
+              <el-option label="info" value="info" />
+              <el-option label="warn" value="warn" />
+              <el-option label="error" value="error" />
+            </el-select>
+            <el-input v-model="logQueryEvent" placeholder="事件关键字" style="width: 220px" clearable />
+            <el-date-picker
+              v-model="logQueryTimeRange"
+              type="datetimerange"
+              range-separator="至"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+              value-format="YYYY-MM-DDTHH:mm:ss"
+            />
+            <el-button size="small" type="primary" @click="applyLogFilter">筛选</el-button>
+            <el-button size="small" @click="exportFilteredLogsCsv">导出筛选CSV</el-button>
+          </div>
           <el-table :data="taskLogs" stripe empty-text="暂无任务日志" style="width: 100%">
             <el-table-column prop="ts" label="时间" min-width="180" />
             <el-table-column prop="level" label="级别" width="100" />
@@ -262,6 +429,18 @@ onMounted(load)
               </template>
             </el-table-column>
           </el-table>
+          <div class="log-pagination">
+            <el-pagination
+              background
+              layout="total, sizes, prev, pager, next"
+              :total="logTotal"
+              :page-size="logPageSize"
+              :current-page="logPage"
+              :page-sizes="[5, 10, 20, 50]"
+              @current-change="onLogPageChange"
+              @size-change="onLogPageSizeChange"
+            />
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -355,5 +534,23 @@ onMounted(load)
   white-space: pre-wrap;
   font-size: 0.8rem;
   color: #334155;
+}
+
+.append-actions {
+  margin-top: 10px;
+}
+
+.log-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.log-pagination {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

@@ -4,12 +4,19 @@ from math import log2
 import pandas as pd
 
 from src.evaluation.index_pipeline import EvaluationResultV2, evaluate_cocoon_pdf36
-from src.evaluation.metrics_v2 import behavior_weight_row
+from src.evaluation.metrics_v2 import behavior_weight_row, dataframe_embeddings_matrix
 
 
 class RiskService:
     def evaluate_overview(self, df: pd.DataFrame, benchmark: dict[str, float]) -> EvaluationResultV2:
         return evaluate_cocoon_pdf36(df, benchmark, mode="static")
+
+    def evaluate_overview_payload(self, df: pd.DataFrame, benchmark: dict[str, float]) -> dict:
+        ev = self.evaluate_overview(df, benchmark)
+        llm_info = self._llm_info(df)
+        payload = ev.__dict__.copy()
+        payload.update(llm_info)
+        return payload
 
     def evaluate_detail(self, df: pd.DataFrame, benchmark: dict[str, float]) -> dict:
         ev = self.evaluate_overview(df, benchmark)
@@ -25,6 +32,7 @@ class RiskService:
 
         return {
             "overview": ev.__dict__,
+            "llm": self._llm_info(df),
             "distributions": {
                 "topic": topic_dist,
                 "stance": stance_dist,
@@ -41,6 +49,31 @@ class RiskService:
                 "s2": self._build_s2_suggestion(ev.s2_cross_domain, s2_info, topic_dist, benchmark_dist),
                 "s4": self._build_s4_suggestion(ev.s4_cognitive_coverage, s4_info, topic_dist, benchmark_dist),
             },
+        }
+
+    def _llm_info(self, df: pd.DataFrame) -> dict:
+        emb = dataframe_embeddings_matrix(df)
+        semantic_rows = 0
+        for _, row in df.iterrows():
+            if str(row.get("semantic_summary", "")).strip():
+                semantic_rows += 1
+        evidence = []
+        if "semantic_summary" in df.columns:
+            for _, row in df.head(5).iterrows():
+                summary = str(row.get("semantic_summary", "")).strip()
+                if summary:
+                    evidence.append(
+                        {
+                            "content_id": str(row.get("content_id", "")),
+                            "topic": str(row.get("topic", "other")),
+                            "summary": summary[:160],
+                        }
+                    )
+        return {
+            "llm_enhanced": emb is not None,
+            "embedding_rows": int(len(df)) if emb is not None else 0,
+            "semantic_rows": semantic_rows,
+            "evidence": evidence,
         }
 
     def _weighted_dist(self, df: pd.DataFrame, col: str) -> dict[str, float]:

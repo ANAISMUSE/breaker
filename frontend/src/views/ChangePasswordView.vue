@@ -28,7 +28,7 @@ async function onSubmit() {
     oldPassword.value = ''
     newPassword.value = ''
     newPassword2.value = ''
-    await router.push('/app/overview/dashboard')
+    await router.push('/app/account/profile')
   } catch (e: unknown) {
     const ax = e as { response?: { data?: { detail?: string } } }
     const detail = ax.response?.data?.detail
@@ -43,7 +43,7 @@ async function onSubmit() {
   <div class="page">
     <div class="panel">
       <h1 class="title">修改密码</h1>
-      <p class="hint">修改成功后将跳转至总览</p>
+      <p class="hint">修改成功后将返回个人信息页</p>
       <form class="form" @submit.prevent="onSubmit">
         <label class="field">
           <span class="label">当前密码</span>

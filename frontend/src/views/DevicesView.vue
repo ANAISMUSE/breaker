@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import type { TableInstance } from 'element-plus'
 import http from '@/api/http'
 
 interface DeviceRow {
@@ -18,6 +20,10 @@ const taskStatuses = ['idle', 'running', 'completed', 'stopped', 'error']
 const createForm = ref({ name: '', platform: '' })
 const creating = ref(false)
 const updatingDeviceId = ref<string | null>(null)
+const deletingDeviceId = ref<string | null>(null)
+const batchDeleting = ref(false)
+const selectedDeviceIds = ref<string[]>([])
+const tableRef = ref<TableInstance>()
 
 async function load() {
   loading.value = true
@@ -31,6 +37,8 @@ async function load() {
   } finally {
     loading.value = false
   }
+  selectedDeviceIds.value = []
+  tableRef.value?.clearSelection()
 }
 
 async function createDevice() {
@@ -69,6 +77,69 @@ async function updateDeviceStatus(device_id: string, status: string) {
   }
 }
 
+async function deleteDevice(row: DeviceRow) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除设备 ${row.name}（${row.device_id}）吗？此操作不可恢复。`,
+      '删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+
+  deletingDeviceId.value = row.device_id
+  errorMsg.value = ''
+  try {
+    await http.delete(`/api/devices/${row.device_id}`)
+    ElMessage.success('设备已删除')
+    await load()
+  } catch {
+    errorMsg.value = '删除设备失败'
+  } finally {
+    deletingDeviceId.value = null
+  }
+}
+
+function onSelectionChange(rows: DeviceRow[]) {
+  selectedDeviceIds.value = rows.map((r) => r.device_id)
+}
+
+async function batchDeleteDevices() {
+  if (!selectedDeviceIds.value.length) {
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认批量删除已选中的 ${selectedDeviceIds.value.length} 台设备吗？此操作不可恢复。`,
+      '批量删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+
+  batchDeleting.value = true
+  errorMsg.value = ''
+  try {
+    await http.delete('/api/devices', { data: { device_ids: selectedDeviceIds.value } })
+    ElMessage.success('批量删除完成')
+    await load()
+  } catch {
+    errorMsg.value = '批量删除设备失败'
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -78,6 +149,15 @@ onMounted(load)
       <div class="head">
         <h1 class="title">设备管理</h1>
         <div class="head-right">
+          <el-button
+            type="danger"
+            plain
+            :disabled="selectedDeviceIds.length === 0"
+            :loading="batchDeleting"
+            @click="batchDeleteDevices"
+          >
+            批量删除（{{ selectedDeviceIds.length }}）
+          </el-button>
           <el-button type="primary" plain :loading="loading" @click="load">刷新</el-button>
         </div>
       </div>
@@ -96,13 +176,23 @@ onMounted(load)
         </el-form-item>
       </el-form>
 
-      <el-table v-loading="loading" :data="devices" stripe empty-text="暂无设备" style="width: 100%">
+      <el-table
+        ref="tableRef"
+        v-loading="loading"
+        :data="devices"
+        stripe
+        row-key="device_id"
+        empty-text="暂无设备"
+        style="width: 100%"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column type="selection" width="48" />
         <el-table-column prop="name" label="名称" min-width="140" />
         <el-table-column prop="platform" label="平台" width="120" />
         <el-table-column prop="status" label="状态" width="140" />
         <el-table-column prop="last_seen" label="最近在线" min-width="180" />
         <el-table-column prop="device_id" label="设备 ID" min-width="220" show-overflow-tooltip />
-        <el-table-column label="操作" min-width="320">
+        <el-table-column label="操作" min-width="420">
           <template #default="{ row }">
             <div class="ops">
               <el-select v-model="row.status" size="small" style="width: 140px">
@@ -115,6 +205,15 @@ onMounted(load)
                 @click="updateDeviceStatus(row.device_id, row.status)"
               >
                 更新
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :loading="deletingDeviceId === row.device_id"
+                @click="deleteDevice(row)"
+              >
+                删除
               </el-button>
             </div>
           </template>
@@ -141,6 +240,12 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .title {

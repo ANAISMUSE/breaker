@@ -12,6 +12,18 @@ interface RiskResult {
   s4_cognitive_coverage: number
   cocoon_index: number
   mode: string
+  llm_enhanced?: boolean
+  semantic_rows?: number
+  embedding_rows?: number
+}
+
+interface RiskDetailResponse {
+  llm?: {
+    llm_enhanced?: boolean
+    embedding_rows?: number
+    semantic_rows?: number
+    evidence?: Array<{ content_id: string; topic: string; summary: string }>
+  }
 }
 
 type RowsRow = {
@@ -29,6 +41,7 @@ type RowsRow = {
 const loading = ref(false)
 const errorMsg = ref('')
 const result = ref<RiskResult | null>(null)
+const llmEvidence = ref<Array<{ content_id: string; topic: string; summary: string }>>([])
 const hard = ref<ReturnType<typeof buildHardDerived> | null>(null)
 const actionPlan = ref<{
   s2: null | {
@@ -443,6 +456,8 @@ async function evaluateAuto() {
     const payload = { rows: rows.value, benchmark: benchmark.value }
     const { data } = await http.post<RiskResult>('/api/risk/overview', payload)
     result.value = data
+    const detail = await http.post<RiskDetailResponse>('/api/risk/detail', payload)
+    llmEvidence.value = detail.data?.llm?.evidence ?? []
 
     const derived = buildDerived()
     hard.value = buildHardDerived()
@@ -459,6 +474,7 @@ async function evaluateAuto() {
     drawAlignment(derived)
   } catch (e) {
     result.value = null
+    llmEvidence.value = []
     hard.value = null
     actionPlan.value = null
     errorMsg.value = e instanceof Error ? e.message : '计算风险概览失败'
@@ -600,6 +616,19 @@ onBeforeUnmount(() => {
             </div>
             <div class="summary-text">
               茧房指数越高，表示风险/封闭性越严重（建议优先关注 S4 与 S2）。
+            </div>
+            <div class="llm-box">
+              <div class="llm-title">LLM增强状态</div>
+              <div class="llm-meta">
+                <span>向量增强：{{ result.llm_enhanced ? '已启用' : '未启用' }}</span>
+                <span>语义条数：{{ result.semantic_rows ?? 0 }}</span>
+                <span>向量条数：{{ result.embedding_rows ?? 0 }}</span>
+              </div>
+              <ul v-if="llmEvidence.length" class="llm-evidence">
+                <li v-for="item in llmEvidence" :key="`${item.content_id}-${item.topic}`">
+                  [{{ item.topic }}] {{ item.summary }}
+                </li>
+              </ul>
             </div>
         <div class="c-focus">
           <div class="c-title">C 贡献拆解（更难维度）</div>
@@ -762,6 +791,34 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 1.35rem;
   color: #0f172a;
+}
+
+.llm-box {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.llm-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.llm-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.llm-evidence {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  color: #334155;
+  font-size: 13px;
 }
 
 .error {

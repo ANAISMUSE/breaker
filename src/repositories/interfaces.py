@@ -29,3 +29,57 @@ class TaskRepository(Protocol):
     def update_task(self, task_id: str, updates: dict) -> TaskEntity | None:
         ...
 
+
+@dataclass
+class UserEntity:
+    username: str
+    password_hash: str
+    role: str
+    nickname: str | None
+    email: str | None
+    phone: str | None
+    avatar: str | None
+    created_at: str
+    updated_at: str
+
+
+class UserRepository(Protocol):
+    def ensure_admin_user(self, password_hash: str) -> None:
+        ...
+
+    def get_by_username(self, username: str) -> UserEntity | None:
+        ...
+
+    def create_user(
+        self,
+        *,
+        username: str,
+        password_hash: str,
+        role: str,
+        nickname: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
+        avatar: str | None = None,
+    ) -> UserEntity:
+        ...
+
+    def update_password(self, username: str, password_hash: str) -> bool:
+        ...
+
+    def update_profile(
+        self,
+        username: str,
+        *,
+        nickname: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
+        avatar: str | None = None,
+    ) -> UserEntity | None:
+        ...
+
+    def list_users(self) -> list[UserEntity]:
+        ...
+
+    def update_role(self, username: str, role: str) -> UserEntity | None:
+        ...
+

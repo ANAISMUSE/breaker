@@ -10,6 +10,15 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const activeMenu = computed(() => route.path)
+const role = computed(() => (auth.role || 'user').toLowerCase())
+const visibleNavGroups = computed(() =>
+  navGroups
+    .map((group) => ({
+      ...group,
+      children: group.children.filter((child) => !child.roles || child.roles.includes(role.value)),
+    }))
+    .filter((group) => group.children.length > 0)
+)
 
 const groupIcon = (title: string) => {
   const map: Record<string, typeof Setting> = {
@@ -38,7 +47,7 @@ function logout() {
 
       <el-scrollbar class="nav-scroll">
         <el-menu :default-active="activeMenu" router class="side-menu" :collapse="false">
-          <el-sub-menu v-for="g in navGroups" :key="g.title" :index="g.title">
+          <el-sub-menu v-for="g in visibleNavGroups" :key="g.title" :index="g.title">
             <template #title>
               <el-icon class="sub-icon">
                 <component :is="groupIcon(g.title)" />

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Optional
 
 from fastapi import Depends, HTTPException
@@ -39,8 +40,19 @@ def get_current_user(
 
         raise HTTPException(status_code=401, detail="invalid token payload")
 
-    role = str(payload.get("role", "viewer"))
+    role = str(payload.get("role", "user"))
 
     return UserIdentity(username=sub, role=role)
+
+
+def require_roles(roles: list[str]) -> Callable[[UserIdentity], UserIdentity]:
+    allowed = {role.lower() for role in roles}
+
+    def _require(user: UserIdentity = Depends(get_current_user)) -> UserIdentity:
+        if user.role.lower() not in allowed:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return user
+
+    return _require
 
 

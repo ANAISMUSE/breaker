@@ -30,7 +30,13 @@ class SimulationService:
         self.mysql = MySqlStore.from_settings() if MySqlStore.enabled() else None
 
     def compare(self, profile: DigitalTwinProfile, df: pd.DataFrame, benchmark: dict[str, float], rounds: int) -> dict:
-        return compare_strategies(profile, df, benchmark, rounds=rounds, seed=42)
+        result = compare_strategies(profile, df, benchmark, rounds=rounds, seed=42)
+        best = result.get("_best", {}) if isinstance(result.get("_best", {}), dict) else {}
+        result["_meta"] = {
+            "best_strategy": best.get("name", ""),
+            "best_reason": best.get("reason", ""),
+        }
+        return result
 
     def _path(self) -> Path:
         p = Path("data/simulation_records.json")

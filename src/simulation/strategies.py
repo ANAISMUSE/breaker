@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from src.evaluation.index_pipeline import EvaluationResultV2, evaluate_cocoon_pdf36
+from src.evaluation.metrics_v2 import dataframe_embeddings_matrix
 from src.simulation.action_generation import ACTION_TYPES, CandidateContent, sample_user_action
 from src.twin.twin_builder import DigitalTwinProfile
 
@@ -109,6 +110,7 @@ def build_candidate_pool(
                 novelty_keywords=float(novelty),
                 platform_engagement=float(0.4 + 0.5 * rng.random()),
                 comment_count_hint=float(0.2 + 0.6 * rng.random()),
+                semantic_similarity=float(0.2 + 0.7 * rng.random()),
             )
         )
     return out
@@ -168,6 +170,7 @@ def compare_strategies(
     rng_master = np.random.default_rng(seed)
     results: dict[str, dict] = {}
     static = evaluate_cocoon_pdf36(base_df, benchmark_dist, mode="static")
+    llm_enhanced = dataframe_embeddings_matrix(base_df) is not None
     best_name = ""
     best_drop = -1e9
     for strat in BreakoutStrategy:
@@ -184,9 +187,31 @@ def compare_strategies(
             "cocoon_end": c1,
             "drop": round(drop, 3),
             "series": [c0] + tail,
+            "llm_enhanced": llm_enhanced,
+            "explanation": _strategy_explanation(strat, drop=drop, llm_enhanced=llm_enhanced),
         }
         if drop > best_drop:
             best_drop = drop
             best_name = strat.value
-    results["_best"] = {"name": best_name, "drop": round(best_drop, 3), "static_cocoon": static.cocoon_index}
+    results["_best"] = {
+        "name": best_name,
+        "drop": round(best_drop, 3),
+        "static_cocoon": static.cocoon_index,
+        "reason": _strategy_explanation(BreakoutStrategy(best_name), drop=best_drop, llm_enhanced=llm_enhanced)
+        if best_name
+        else "",
+    }
     return results
+
+
+def _strategy_explanation(strategy: BreakoutStrategy, drop: float, llm_enhanced: bool) -> str:
+    llm_note = "（含语义向量）" if llm_enhanced else "（仅主题/立场）"
+    if strategy == BreakoutStrategy.ladder:
+        return f"阶梯策略通过逐步提高新颖度来降低用户抵触，通常在稳定改善上更均衡{llm_note}。"
+    if strategy == BreakoutStrategy.aggressive:
+        return f"激进策略快速引入非头部主题，短期变化大但波动更高{llm_note}。"
+    if strategy == BreakoutStrategy.mixed:
+        return f"混合策略在核心兴趣与新主题间折中，适合中等强度干预{llm_note}。"
+    if drop < 0:
+        return f"基线策略可能加剧同温层沉浸，当前模拟显示改善不足{llm_note}。"
+    return f"基线策略偏向保持现有偏好，改善幅度通常最保守{llm_note}。"

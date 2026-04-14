@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+from typing import Any
 
 import pandas as pd
 
@@ -10,7 +11,18 @@ from src.config.settings import settings
 from src.data_ingestion.douyin_parser import parse_douyin_export
 
 
-def crawl_public_data(platform: str, keyword: str = "", limit: int = 50) -> pd.DataFrame:
+def _demo_fallback(keyword: str, limit: int) -> pd.DataFrame:
+    # Demo fallback: use local sample to emulate crawler output shape.
+    sample = Path("data/demo_douyin_export.json")
+    if sample.exists():
+        df = parse_douyin_export(sample)
+        if keyword:
+            df = df[df["text"].fillna("").str.contains(keyword, case=False, regex=False)]
+        return df.head(limit).reset_index(drop=True)
+    return pd.DataFrame()
+
+
+def crawl_public_data_with_meta(platform: str, keyword: str = "", limit: int = 50) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
     MediaCrawler 适配入口（演示/可选外接）。
 
@@ -20,7 +32,7 @@ def crawl_public_data(platform: str, keyword: str = "", limit: int = 50) -> pd.D
     if platform != "douyin":
         raise ValueError("Demo adapter currently supports douyin only.")
 
-    if settings.enable_real_crawler and settings.mediacrawler_project_dir:
+    if settings.enable_cloud_monitor and settings.enable_real_crawler and settings.mediacrawler_project_dir:
         out_file = Path(settings.mediacrawler_output_file)
         if not out_file.is_absolute():
             out_file = Path.cwd() / out_file
@@ -47,16 +59,27 @@ def crawl_public_data(platform: str, keyword: str = "", limit: int = 50) -> pd.D
                     raw = raw["items"]
                 tmp = Path("data/mediacrawler_tmp.json")
                 tmp.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-                return parse_douyin_export(tmp).head(limit).reset_index(drop=True)
-        except Exception:
+                return parse_douyin_export(tmp).head(limit).reset_index(drop=True), {
+                    "mode": "real",
+                    "degraded": False,
+                    "reason": "",
+                }
+        except Exception as exc:
             # Fall through to demo fallback to keep UX stable.
-            pass
+            return _demo_fallback(keyword, limit), {
+                "mode": "demo",
+                "degraded": True,
+                "reason": f"real adapter failed: {exc.__class__.__name__}",
+            }
 
-    # Demo fallback: use local sample to emulate crawler output shape.
-    sample = Path("data/demo_douyin_export.json")
-    if sample.exists():
-        df = parse_douyin_export(sample)
-        if keyword:
-            df = df[df["text"].fillna("").str.contains(keyword, case=False, regex=False)]
-        return df.head(limit).reset_index(drop=True)
-    return pd.DataFrame()
+    reason = "cloud monitor disabled or adapter not configured"
+    return _demo_fallback(keyword, limit), {
+        "mode": "demo",
+        "degraded": False,
+        "reason": reason,
+    }
+
+
+def crawl_public_data(platform: str, keyword: str = "", limit: int = 50) -> pd.DataFrame:
+    df, _ = crawl_public_data_with_meta(platform=platform, keyword=keyword, limit=limit)
+    return df

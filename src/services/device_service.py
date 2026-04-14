@@ -73,3 +73,25 @@ class DeviceService:
             self._save(rows)
         return found
 
+    def delete_device(self, device_id: str) -> bool:
+        if self.mysql:
+            return self.mysql.delete_device(device_id)
+
+        rows = self.list_devices()
+        kept = [r for r in rows if r.device_id != device_id]
+        if len(kept) == len(rows):
+            return False
+        self._save(kept)
+        return True
+
+    def delete_devices(self, device_ids: list[str]) -> dict[str, list[str]]:
+        uniq_ids = [x for x in dict.fromkeys(device_ids) if x]
+        deleted: list[str] = []
+        missing: list[str] = []
+        for device_id in uniq_ids:
+            if self.delete_device(device_id):
+                deleted.append(device_id)
+            else:
+                missing.append(device_id)
+        return {"deleted": deleted, "missing": missing}
+

@@ -7,6 +7,7 @@ import pandas as pd
 from docx import Document
 
 from src.evaluation.index_pipeline import EvaluationResultV2
+from src.privacy.anonymizer import anonymize_record
 
 
 def export_word_report(
@@ -24,7 +25,9 @@ def export_word_report(
     doc = Document()
     doc.add_heading("茧评 - 信息茧房评估报告（PDF 技术方案口径）", level=1)
     doc.add_paragraph(f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    doc.add_paragraph(f"匿名用户：{df['user_id'].iloc[0] if not df.empty and 'user_id' in df.columns else 'unknown'}")
+    user_id = str(df["user_id"].iloc[0]) if not df.empty and "user_id" in df.columns else "unknown"
+    user_display = anonymize_record({"user_id": user_id}).get("user_id", "unknown")
+    doc.add_paragraph(f"匿名用户：{user_display}")
 
     doc.add_heading("一、四维度多样性得分（1–10，越高越好）", level=2)
     doc.add_paragraph(f"S1 内容类型多样性：{result.s1_content_diversity}")

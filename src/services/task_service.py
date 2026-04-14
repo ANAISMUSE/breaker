@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import csv
+import io
 import json
 from pathlib import Path
 import uuid
@@ -68,13 +70,70 @@ class TaskService:
             return self.repo.get_task(task_id)
         return None
 
-    def list_task_logs(self, task_id: str) -> list[dict]:
+    def list_task_logs(
+        self,
+        task_id: str,
+        level: str | None = None,
+        event: str | None = None,
+        start_ts: str | None = None,
+        end_ts: str | None = None,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> dict:
         row = self.repo.get_task(task_id)
         if not row:
-            return []
+            return {"logs": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
         if not isinstance(row.task_logs, list):
-            return []
-        return row.task_logs
+            return {"logs": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+
+        logs = row.task_logs
+        if level:
+            logs = [x for x in logs if str(x.get("level", "")).lower() == level.lower()]
+        if event:
+            event_kw = event.strip().lower()
+            logs = [x for x in logs if event_kw in str(x.get("event", "")).lower()]
+        start_dt = self._parse_iso_datetime(start_ts)
+        end_dt = self._parse_iso_datetime(end_ts)
+        if start_dt or end_dt:
+            filtered_logs: list[dict] = []
+            for x in logs:
+                log_dt = self._parse_iso_datetime(str(x.get("ts", "")))
+                if not log_dt:
+                    continue
+                if start_dt and log_dt < start_dt:
+                    continue
+                if end_dt and log_dt > end_dt:
+                    continue
+                filtered_logs.append(x)
+            logs = filtered_logs
+
+        logs = list(reversed(logs))
+        safe_page = max(1, page)
+        safe_page_size = max(1, min(100, page_size))
+        total = len(logs)
+        total_pages = (total + safe_page_size - 1) // safe_page_size
+        start = (safe_page - 1) * safe_page_size
+        end = start + safe_page_size
+        return {
+            "logs": logs[start:end],
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "total_pages": total_pages,
+        }
+
+    def _parse_iso_datetime(self, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = raw[:-1]
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            return None
 
     def append_task_log(self, task_id: str, level: str, event: str, detail: dict) -> TaskEntity | None:
         row = append_task_log(task_id, level, event, detail)
@@ -107,4 +166,39 @@ class TaskService:
         path = out_dir / f"task_{task_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
         path.write_text(json.dumps(row.__dict__, ensure_ascii=False, indent=2), encoding="utf-8")
         return str(path)
+
+    def export_task_logs_csv(
+        self,
+        task_id: str,
+        level: str | None = None,
+        event: str | None = None,
+        start_ts: str | None = None,
+        end_ts: str | None = None,
+    ) -> tuple[str, str] | None:
+        row = self.repo.get_task(task_id)
+        if not row:
+            return None
+        payload = self.list_task_logs(
+            task_id=task_id,
+            level=level,
+            event=event,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            page=1,
+            page_size=10000,
+        )
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["ts", "level", "event", "detail"])
+        for log in payload.get("logs", []):
+            writer.writerow(
+                [
+                    str(log.get("ts", "")),
+                    str(log.get("level", "")),
+                    str(log.get("event", "")),
+                    json.dumps(log.get("detail", {}), ensure_ascii=False),
+                ]
+            )
+        filename = f"task_logs_{task_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+        return filename, buf.getvalue()
 

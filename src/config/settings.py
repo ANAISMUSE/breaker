@@ -9,10 +9,13 @@ load_dotenv()
 
 @dataclass
 class Settings:
+    llm_provider: str = os.getenv("LLM_PROVIDER", "dashscope")
     dashscope_api_key: str = os.getenv("DASHSCOPE_API_KEY", "")
     dashscope_base_url: str = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
     multimodal_model: str = os.getenv("MULTIMODAL_MODEL", "qwen-vl-plus")
+    local_embedding_model: str = os.getenv("LOCAL_EMBEDDING_MODEL", "qwen3-embedding-4b")
+    local_multimodal_model: str = os.getenv("LOCAL_MULTIMODAL_MODEL", "qwen2.5-omni-7b")
     default_platform: str = os.getenv("DEFAULT_PLATFORM", "douyin")
     use_llm_scoring: bool = os.getenv("USE_LLM_SCORING", "false").lower() == "true"
     mediacrawler_project_dir: str = os.getenv("MEDIACRAWLER_PROJECT_DIR", "")

@@ -21,6 +21,7 @@ class CandidateContent:
     novelty_keywords: float = 0.5
     platform_engagement: float = 0.5
     comment_count_hint: float = 0.3
+    semantic_similarity: float | None = None
 
 
 def _topic_match_strength(profile: DigitalTwinProfile, topic: str) -> float:
@@ -45,11 +46,12 @@ def score_action_vector(candidate: CandidateContent, profile: DigitalTwinProfile
     engage = candidate.platform_engagement
     discuss = candidate.discussion_score
     novelty = candidate.novelty_keywords
+    semantic_bias = candidate.semantic_similarity if candidate.semantic_similarity is not None else 0.5
     low_comments = 1.0 - min(1.0, candidate.comment_count_hint)
     fatigue_like = profile.behavior.like_rate * 0.4
     fatigue_deep = (profile.behavior.like_rate + profile.behavior.comment_rate) * 0.25
 
-    s_like = match_core * 0.55 + engage * 0.35 - fatigue_like
+    s_like = match_core * 0.55 + engage * 0.35 + semantic_bias * 0.15 - fatigue_like
     s_comment = discuss * 0.45 + _stance_distance(profile, candidate.stance) * 0.35 + engage * 0.2 - fatigue_deep * 0.1
     s_comment += (1.0 - candidate.comment_count_hint) * 0.15
     s_search = novelty * 0.5 + (1.0 - match_core) * 0.25 + profile.cognitive.polarization_hint * 0.15

@@ -50,7 +50,7 @@ async function onSubmit() {
   <div class="login-page">
     <div class="login-card">
       <h1 class="login-title">注册</h1>
-      <p class="login-hint">新账号默认为 viewer，管理员账号请在服务端配置</p>
+      <p class="login-hint">新账号默认为普通用户，管理员账号请在后台授权</p>
 
       <form class="login-form" @submit.prevent="onSubmit">
         <label class="field">

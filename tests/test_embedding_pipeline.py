@@ -1,9 +1,11 @@
 import pandas as pd
 
+from src.config.settings import settings
 from src.embedding.pipeline import build_semantic_vector_store
 
 
 def test_build_semantic_vector_store() -> None:
+    settings.llm_provider = "local"
     df = pd.DataFrame(
         [
             {

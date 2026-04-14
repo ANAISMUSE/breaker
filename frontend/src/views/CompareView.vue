@@ -32,6 +32,7 @@ interface BestBlock {
   name: string
   drop: number
   static_cocoon: number
+  reason?: string
 }
 
 interface CompareResponse {
@@ -52,7 +53,7 @@ const resultText = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
 const comparePayload = ref<CompareResponse | null>(null)
-const bestInfo = ref<{ name: string; drop: number; staticCocoon: number } | null>(null)
+const bestInfo = ref<{ name: string; drop: number; staticCocoon: number; reason: string } | null>(null)
 
 const trendEl = ref<HTMLDivElement | null>(null)
 const barEl = ref<HTMLDivElement | null>(null)
@@ -410,6 +411,7 @@ async function runCompare() {
         name: best.name,
         drop: best.drop,
         staticCocoon: best.static_cocoon,
+        reason: String(best.reason ?? ''),
       }
     }
     await refreshCharts()
@@ -466,11 +468,12 @@ onBeforeUnmount(() => {
 
       <div v-if="bestInfo" class="best">
         <span class="best-tag">模拟推荐</span>
-        <span>
+        <span class="best-line">
           静态茧房指数 <strong>{{ bestInfo.staticCocoon.toFixed(2) }}</strong>；
           当前样本下最优策略为 <strong>{{ stratLabel(bestInfo.name) }}</strong>，
           Δ = <strong>{{ bestInfo.drop.toFixed(3) }}</strong>（越大表示末轮相对静态改善越明显）。
         </span>
+        <span v-if="bestInfo.reason" class="best-reason">{{ bestInfo.reason }}</span>
       </div>
 
       <div class="toolbar">
@@ -553,6 +556,7 @@ onBeforeUnmount(() => {
 }
 .best {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
@@ -564,6 +568,9 @@ onBeforeUnmount(() => {
   color: #334155;
   line-height: 1.5;
 }
+.best-line {
+  display: block;
+}
 .best-tag {
   flex-shrink: 0;
   padding: 2px 8px;
@@ -572,6 +579,10 @@ onBeforeUnmount(() => {
   color: #fff;
   font-size: 12px;
   font-weight: 600;
+}
+.best-reason {
+  color: #0f766e;
+  font-size: 13px;
 }
 .toolbar {
   display: flex;

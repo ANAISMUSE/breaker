@@ -13,9 +13,36 @@ interface DashboardData {
   recent_audits: Array<Record<string, unknown>>
 }
 
+interface RealtimeStatus {
+  enabled: boolean
+  adapter: string
+  mode: 'real' | 'demo'
+  real_mode_allowed?: boolean
+  gate_reason?: string | null
+  adapter_ready: boolean
+  project_dir: string | null
+  last_output_exists: boolean
+  last_output_file: string
+  legal_ack: boolean
+}
+
+interface CrawlPreviewResponse {
+  rows: Array<Record<string, unknown>>
+  row_count: number
+  mode: 'real' | 'demo'
+  degraded: boolean
+  reason: string
+}
+
 const loading = ref(true)
 const errorMsg = ref('')
 const data = ref<DashboardData | null>(null)
+const realtimeStatus = ref<RealtimeStatus | null>(null)
+const crawlKeyword = ref('')
+const crawlLimit = ref(30)
+const crawling = ref(false)
+const crawlRows = ref<Array<Record<string, unknown>>>([])
+const crawlMeta = ref<{ mode: 'real' | 'demo'; degraded: boolean; reason: string } | null>(null)
 
 const taskEl = ref<HTMLDivElement | null>(null)
 const deviceEl = ref<HTMLDivElement | null>(null)
@@ -102,15 +129,43 @@ async function load() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const resp = await http.get<DashboardData>('/api/analytics/dashboard')
-    data.value = resp.data
+    const [dashboardResp, realtimeResp] = await Promise.all([
+      http.get<DashboardData>('/api/analytics/dashboard'),
+      http.get<RealtimeStatus>('/api/realtime/status'),
+    ])
+    data.value = dashboardResp.data
+    realtimeStatus.value = realtimeResp.data
     await nextTick()
     renderCharts()
   } catch {
     errorMsg.value = '监控总览加载失败'
     data.value = null
+    realtimeStatus.value = null
   } finally {
     loading.value = false
+  }
+}
+
+async function runCrawlPreview() {
+  crawling.value = true
+  try {
+    const { data: resp } = await http.post<CrawlPreviewResponse>('/api/realtime/crawl-preview', {
+      platform: 'douyin',
+      keyword: crawlKeyword.value,
+      limit: crawlLimit.value,
+    })
+    crawlRows.value = Array.isArray(resp.rows) ? resp.rows : []
+    crawlMeta.value = {
+      mode: resp.mode,
+      degraded: resp.degraded,
+      reason: resp.reason || '',
+    }
+  } catch (e) {
+    crawlRows.value = []
+    crawlMeta.value = null
+    errorMsg.value = e instanceof Error ? e.message : '监测样本拉取失败'
+  } finally {
+    crawling.value = false
   }
 }
 
@@ -134,6 +189,54 @@ onBeforeUnmount(() => {
         <el-button type="primary" plain :loading="loading" @click="load">刷新</el-button>
       </div>
       <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+
+      <div v-if="realtimeStatus" class="realtime-card">
+        <div class="realtime-head">
+          <div>
+            <div class="realtime-title">云监测适配器状态</div>
+            <div class="realtime-subtitle">
+              当前模式：
+              <strong>{{ realtimeStatus.mode === 'real' ? '真实适配器' : '演示模式' }}</strong>
+            </div>
+          </div>
+          <el-tag :type="realtimeStatus.enabled ? 'success' : 'info'">
+            {{ realtimeStatus.enabled ? '已启用' : '未启用' }}
+          </el-tag>
+        </div>
+        <div class="realtime-meta">
+          <span>适配器：{{ realtimeStatus.adapter }}</span>
+          <span>就绪：{{ realtimeStatus.adapter_ready ? '是' : '否' }}</span>
+          <span>合规确认：{{ realtimeStatus.legal_ack ? '已确认' : '未确认' }}</span>
+          <span>最近输出：{{ realtimeStatus.last_output_exists ? '存在' : '暂无' }}</span>
+        </div>
+        <p v-if="realtimeStatus.gate_reason" class="realtime-gate">真实模式未放行：{{ realtimeStatus.gate_reason }}</p>
+      </div>
+
+      <div class="realtime-card">
+        <div class="realtime-head">
+          <div>
+            <div class="realtime-title">监测样本预览（含降级）</div>
+            <div class="realtime-subtitle">真实模式不可用时会自动降级到演示数据。</div>
+          </div>
+          <el-button type="primary" plain :loading="crawling" @click="runCrawlPreview">拉取样本</el-button>
+        </div>
+        <div class="filters">
+          <el-input v-model="crawlKeyword" placeholder="关键词（可选）" style="max-width: 220px" clearable />
+          <el-input-number v-model="crawlLimit" :min="1" :max="200" />
+        </div>
+        <div v-if="crawlMeta" class="realtime-meta">
+          <span>返回模式：{{ crawlMeta.mode === 'real' ? '真实适配器' : '演示模式' }}</span>
+          <span>是否降级：{{ crawlMeta.degraded ? '是' : '否' }}</span>
+          <span v-if="crawlMeta.reason">原因：{{ crawlMeta.reason }}</span>
+          <span>样本数：{{ crawlRows.length }}</span>
+        </div>
+        <el-table v-if="crawlRows.length" :data="crawlRows" size="small" max-height="280">
+          <el-table-column prop="user_id" label="用户ID" min-width="120" />
+          <el-table-column prop="topic" label="主题" min-width="100" />
+          <el-table-column prop="text" label="文本" min-width="300" show-overflow-tooltip />
+        </el-table>
+        <p v-else class="empty-hint">点击「拉取样本」后展示预览数据。</p>
+      </div>
 
       <div v-if="data" class="stats">
         <el-statistic title="任务总数" :value="data.task_count" />
@@ -228,6 +331,53 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 36px;
   margin-bottom: 18px;
+}
+.realtime-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.realtime-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.realtime-title {
+  color: #0f172a;
+  font-weight: 700;
+}
+.realtime-subtitle {
+  color: #475569;
+  font-size: 13px;
+  margin-top: 2px;
+}
+.realtime-meta {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: #334155;
+  font-size: 13px;
+}
+.realtime-gate {
+  margin: 10px 0 0;
+  color: #b45309;
+  font-size: 13px;
+}
+.empty-hint {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 13px;
 }
 .grid {
   display: grid;
