@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.encoders import jsonable_encoder
@@ -14,6 +16,20 @@ from src.privacy.anonymizer import anonymize_record
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
+
+
+def _json_safe(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (datetime, date, pd.Timestamp)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 @router.post("/import")
@@ -50,6 +66,7 @@ async def import_rows(
             raise HTTPException(status_code=502, detail=f"semantic enhancement failed: {e}") from e
 
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
+    records = _json_safe(records)
     if anonymize:
         records = [anonymize_record(row) for row in records]
     return {
@@ -62,6 +79,8 @@ async def import_rows(
         "invalid_rows": result.invalid_rows,
         "warnings": result.warnings,
         "semantic_enhanced": semantic_applied,
+        "vector_schema_version": df.attrs.get("vector_schema_version"),
+        "multimodal_schema_version": df.attrs.get("multimodal_schema_version"),
         "llm_provider": llm_health.provider,
         "embedding_model": llm_health.embedding_model,
         "multimodal_model": llm_health.multimodal_model,

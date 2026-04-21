@@ -22,6 +22,7 @@ from src.api.routers.tasks import router as tasks_router
 from src.api.routers.users import router as users_router
 from src.api.routers.workbench import router as workbench_router
 from src.api.routers.workflow import router as workflow_router
+from src.config.settings import settings
 from src.storage.mysql_store import MySqlStore
 
 API_PREFIX = "/api"
@@ -42,6 +43,7 @@ def _mount_frontend_if_present(app: FastAPI) -> None:
 
 
 def create_app() -> FastAPI:
+    settings.validate_runtime()
     app = FastAPI(title="Jianping API", version="0.1.0")
 
     if MySqlStore.enabled():

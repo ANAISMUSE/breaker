@@ -50,6 +50,7 @@ def realtime_status() -> dict:
         "last_output_exists": output_file.exists(),
         "last_output_file": str(output_file),
         "legal_ack": settings.crawler_legal_ack,
+        "allowed_purposes": [p.strip() for p in settings.crawler_allowed_purposes.split(",") if p.strip()],
     }
 
 
@@ -57,6 +58,7 @@ class CrawlPreviewIn(BaseModel):
     platform: str = "douyin"
     keyword: str = ""
     limit: int = Field(default=50, ge=1, le=200)
+    purpose: str = "academic_research"
 
 
 @router.post("/crawl-preview")
@@ -68,6 +70,7 @@ def crawl_preview(payload: CrawlPreviewIn) -> dict:
             "platform": payload.platform,
             "keyword": payload.keyword,
             "limit": payload.limit,
+            "purpose": payload.purpose,
             "gate_reason": gate_reason,
         },
     )
@@ -76,12 +79,17 @@ def crawl_preview(payload: CrawlPreviewIn) -> dict:
         platform=payload.platform,
         keyword=payload.keyword,
         limit=payload.limit,
+        purpose=payload.purpose,
     )
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
     result_mode = str(meta.get("mode", "demo"))
     degraded = bool(meta.get("degraded", False))
     adapter_reason = str(meta.get("reason", "")).strip()
     reason = adapter_reason or gate_reason or ""
+    legal_ack = bool(meta.get("legal_ack", settings.crawler_legal_ack))
+    compliance_gate_reason = str(meta.get("compliance_gate_reason", gate_reason or "")).strip()
+    purpose = str(meta.get("purpose", payload.purpose)).strip()
+    purpose_allowed = bool(meta.get("purpose_allowed", False))
 
     append_audit_log(
         "realtime_crawl_finished",
@@ -92,6 +100,10 @@ def crawl_preview(payload: CrawlPreviewIn) -> dict:
             "gate_reason": gate_reason,
             "reason": reason,
             "row_count": len(records),
+            "legal_ack": legal_ack,
+            "compliance_gate_reason": compliance_gate_reason,
+            "purpose": purpose,
+            "purpose_allowed": purpose_allowed,
         },
     )
 
@@ -101,4 +113,8 @@ def crawl_preview(payload: CrawlPreviewIn) -> dict:
         "mode": result_mode,
         "degraded": degraded,
         "reason": reason,
+        "legal_ack": legal_ack,
+        "compliance_gate_reason": compliance_gate_reason,
+        "purpose": purpose,
+        "purpose_allowed": purpose_allowed,
     }

@@ -10,6 +10,7 @@ from typing import Any, Callable
 import pandas as pd
 
 from src.agents.policies import generate_ladder_plan
+from src.config.settings import settings
 from src.evaluation.index_pipeline import evaluate_cocoon_pdf36
 from src.simulation.strategies import compare_strategies
 from src.storage.mysql_store import MySqlStore
@@ -45,8 +46,22 @@ class SimulationService:
     def __init__(self) -> None:
         self.mysql = MySqlStore.from_settings() if MySqlStore.enabled() else None
 
-    def compare(self, profile: DigitalTwinProfile, df: pd.DataFrame, benchmark: dict[str, float], rounds: int) -> dict:
-        result = compare_strategies(profile, df, benchmark, rounds=rounds, seed=42)
+    def compare(
+        self,
+        profile: DigitalTwinProfile,
+        df: pd.DataFrame,
+        benchmark: dict[str, float],
+        rounds: int,
+        llm_enabled: bool = False,
+    ) -> dict:
+        result = compare_strategies(
+            profile,
+            df,
+            benchmark,
+            rounds=rounds,
+            seed=42,
+            llm_enabled=bool(settings.use_llm_scoring and llm_enabled),
+        )
         best = result.get("_best", {}) if isinstance(result.get("_best", {}), dict) else {}
         result["_meta"] = {
             "best_strategy": best.get("name", ""),

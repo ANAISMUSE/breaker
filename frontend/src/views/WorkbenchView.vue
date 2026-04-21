@@ -4,6 +4,7 @@ import http from '@/api/http'
 import RowsFileImport from '@/components/RowsFileImport.vue'
 import { demoBenchmark, demoRows } from '@/constants/demoData'
 
+const isDevMode = import.meta.env.DEV || String(import.meta.env.VITE_DEV_MODE || '').toLowerCase() === 'true'
 const rowsText = ref(JSON.stringify(demoRows, null, 2))
 const benchmarkText = ref(JSON.stringify(demoBenchmark, null, 2))
 const loading = ref(false)
@@ -17,7 +18,16 @@ const trainingId = ref('')
 const trainingSummary = ref('')
 const trainingReflection = ref('')
 const trainingScore = ref<number | null>(null)
+const trainingFeedback = ref('')
+const trainingEvidence = ref<string[]>([])
+const trainingMessage = ref('')
 const trainingRecords = ref<Array<Record<string, unknown>>>([])
+const llmHealthText = ref('')
+const phase5Workdir = ref('outputs/phase5_ui')
+const phase5BaselineModel = ref('Qwen/Qwen2.5-7B-Instruct')
+const phase5LoraModel = ref('outputs/phase5_ui/adapter')
+const phase5SkipTrain = ref(true)
+const phase5ResultText = ref('')
 
 function onImportedRows(
   rows: Record<string, unknown>[],
@@ -97,11 +107,16 @@ async function submitTraining() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const { data } = await http.post<{ score: number }>(`/api/workbench/training/${trainingId.value}/submit`, {
-      summary: trainingSummary.value,
-      reflection: trainingReflection.value,
-    })
+    const { data } = await http.post<{ score: number; feedback?: string; evidence?: string[] }>(
+      `/api/workbench/training/${trainingId.value}/submit`,
+      {
+        summary: trainingSummary.value,
+        reflection: trainingReflection.value,
+      },
+    )
     trainingScore.value = Number(data.score ?? 0)
+    trainingFeedback.value = String(data.feedback ?? '')
+    trainingEvidence.value = Array.isArray(data.evidence) ? data.evidence.map((x) => String(x)) : []
     await loadTrainingRecords()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : '提交训练结果失败'
@@ -117,6 +132,64 @@ async function loadTrainingRecords() {
   } catch {
     trainingRecords.value = []
   }
+}
+
+async function sendTrainingMessage() {
+  if (!trainingId.value || !trainingMessage.value.trim()) {
+    return
+  }
+  loading.value = true
+  try {
+    await http.post(`/api/workbench/training/${trainingId.value}/message`, {
+      role: 'user',
+      content: trainingMessage.value.trim(),
+    })
+    trainingMessage.value = ''
+    await loadTrainingRecords()
+  } finally {
+    loading.value = false
+  }
+}
+
+async function checkLlmHealth() {
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const { data } = await http.get('/api/llm/health')
+    llmHealthText.value = JSON.stringify(data, null, 2)
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'LLM 健康检查失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function runPhase5FromBrowser() {
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const sourceRows = JSON.parse(rowsText.value) as Array<Record<string, unknown>>
+    const { data } = await http.post('/api/workbench/phase5/run', {
+      source_rows: sourceRows,
+      workdir: phase5Workdir.value,
+      baseline_model: phase5BaselineModel.value,
+      lora_model: phase5LoraModel.value,
+      skip_train: phase5SkipTrain.value,
+    })
+    phase5ResultText.value = JSON.stringify(data, null, 2)
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Phase5 闭环运行失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function trainingScoreTrend() {
+  return trainingRecords.value
+    .slice()
+    .reverse()
+    .map((x) => Number(x.score ?? 0))
+    .filter((x) => Number.isFinite(x))
 }
 
 onMounted(loadTrainingRecords)
@@ -161,12 +234,52 @@ onMounted(loadTrainingRecords)
         <span v-if="trainingScore !== null">训练得分：{{ trainingScore.toFixed(2) }}</span>
         <el-button plain @click="loadTrainingRecords">刷新训练记录</el-button>
       </div>
+      <p v-if="trainingFeedback" class="feedback">LLM评语：{{ trainingFeedback }}</p>
+      <ul v-if="trainingEvidence.length" class="evidence">
+        <li v-for="(item, idx) in trainingEvidence" :key="idx">{{ item }}</li>
+      </ul>
+      <div class="actions">
+        <el-input v-model="trainingMessage" placeholder="继续追问：请给我下一步训练建议" />
+        <el-button :loading="loading" @click="sendTrainingMessage">发送训练消息</el-button>
+      </div>
       <el-table :data="trainingRecords" size="small" stripe empty-text="暂无训练记录">
         <el-table-column prop="updated_at" label="时间" min-width="160" />
         <el-table-column prop="topic" label="议题" min-width="220" />
         <el-table-column prop="score" label="得分" width="90" />
         <el-table-column prop="status" label="状态" width="100" />
       </el-table>
+      <div class="trend-box">
+        <div class="trend-title">训练得分趋势</div>
+        <div class="trend-line">
+          <div
+            v-for="(s, idx) in trainingScoreTrend()"
+            :key="idx"
+            class="trend-point"
+            :style="{ height: `${Math.max(8, s * 36)}px` }"
+            :title="`score=${s.toFixed(2)}`"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div v-if="isDevMode" class="training phase5-panel">
+      <h3>Phase5 LoRA 闭环（浏览器直接调用 API）</h3>
+      <div class="actions">
+        <el-button :loading="loading" @click="checkLlmHealth">检查 LLM 健康</el-button>
+        <el-button type="primary" :loading="loading" @click="runPhase5FromBrowser">运行 Phase5 闭环</el-button>
+      </div>
+      <div class="training-grid">
+        <el-input v-model="phase5Workdir" placeholder="workdir，例如 outputs/phase5_ui" />
+        <el-input v-model="phase5BaselineModel" placeholder="baseline model" />
+        <el-input v-model="phase5LoraModel" placeholder="lora model / adapter path" />
+      </div>
+      <div class="actions">
+        <el-checkbox v-model="phase5SkipTrain">跳过训练（仅联调预测与评估）</el-checkbox>
+      </div>
+      <div class="grid2">
+        <el-input :model-value="llmHealthText" type="textarea" :rows="8" readonly placeholder="LLM health 输出" />
+        <el-input :model-value="phase5ResultText" type="textarea" :rows="8" readonly placeholder="Phase5 运行结果输出" />
+      </div>
     </div>
   </div>
 </template>
@@ -183,5 +296,13 @@ onMounted(loadTrainingRecords)
 .tb-label { font-size:13px; color:#334155;}
 .training { margin-top:16px; border:1px solid #e5e7eb; border-radius:10px; padding:12px; background:#f8fafc;}
 .training-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:8px;}
+.feedback { margin: 8px 0; color:#334155; }
+.evidence { margin: 6px 0 8px 16px; color:#475569; }
+.trend-box { margin-top: 10px; }
+.trend-title { font-size: 12px; color:#64748b; margin-bottom: 6px; }
+.trend-line { display:flex; align-items:flex-end; gap:6px; min-height:44px; padding:6px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; }
+.trend-point { width:10px; background:#60a5fa; border-radius:4px 4px 0 0; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
+.phase5-panel { margin-top:18px; }
 </style>
 

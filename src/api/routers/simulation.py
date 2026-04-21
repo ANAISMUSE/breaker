@@ -21,6 +21,7 @@ class CompareIn(BaseModel):
     rows: list[dict]
     benchmark: dict[str, float]
     rounds: int = 10
+    llm_enabled: bool = False
 
 
 class LadderPlanIn(BaseModel):
@@ -47,7 +48,13 @@ def compare(payload: CompareIn) -> dict:
         if not df.empty:
             df["topic"] = df["topic"].astype(str).map(normalize_topic)
         profile = build_digital_twin_profile(df)
-        result = service.compare(profile, df, payload.benchmark, payload.rounds)
+        result = service.compare(
+            profile,
+            df,
+            payload.benchmark,
+            payload.rounds,
+            llm_enabled=bool(payload.llm_enabled),
+        )
         series = {k: v.get("series", []) for k, v in result.items() if not k.startswith("_")}
         out = {
             "result": result,

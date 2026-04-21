@@ -28,10 +28,33 @@ def run_workflow(payload: WorkflowRunIn) -> dict:
         raise HTTPException(status_code=500, detail=f"workflow failed: {e}") from e
 
     result = state.get("evaluation_result")
+    trace = state.get("trace", [])
+    node_summaries = [
+        {
+            "agent": item.get("agent"),
+            "status": item.get("status"),
+            "input": item.get("input", {}),
+            "output": item.get("output", {}),
+            "fallback": item.get("fallback"),
+        }
+        for item in trace
+        if isinstance(item, dict)
+    ]
     return {
         "evaluation": result.__dict__ if result is not None else None,
+        "evaluation_meta": state.get("evaluation_meta", {}),
+        "evidence": state.get("evidence", []),
         "ladder_plan": state.get("ladder_plan", []),
-        "trace": state.get("trace", []),
+        "policy_plan": state.get("policy_plan", []),
+        "policy_context": state.get("policy_context", {}),
+        "simulation_compare": state.get("simulation_compare", {}),
+        "blindspots": state.get("blindspots", []),
+        "trace": trace,
+        "agent_trace": trace,
+        "node_summaries": node_summaries,
+        "errors": state.get("errors", []),
+        "confidence": state.get("confidence", {}),
+        "degraded": any(item.get("status") != "ok" for item in node_summaries),
         "semantic_enhanced": bool(state.get("semantic_enhanced", False)),
         "row_count": len(state.get("rows", payload.rows)),
     }

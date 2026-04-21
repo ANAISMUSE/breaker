@@ -73,6 +73,40 @@ class DeviceService:
             self._save(rows)
         return found
 
+    def get_device(self, device_id: str) -> Device | None:
+        rows = self.list_devices()
+        for row in rows:
+            if row.device_id == device_id:
+                return row
+        return None
+
+    def claim_device(self, device_id: str) -> Device | None:
+        row = self.get_device(device_id)
+        if not row:
+            return None
+        if row.status != "idle":
+            return None
+        return self.set_status(device_id, "running")
+
+    def acquire_device(self, preferred_platform: str | None = None) -> Device | None:
+        rows = self.list_devices()
+        idle_rows = [r for r in rows if r.status == "idle"]
+        if not idle_rows:
+            return None
+        preferred = (preferred_platform or "").strip().lower()
+        target: Device | None = None
+        if preferred:
+            for row in idle_rows:
+                if row.platform.strip().lower() == preferred:
+                    target = row
+                    break
+        if target is None:
+            target = idle_rows[0]
+        return self.set_status(target.device_id, "running")
+
+    def release_device(self, device_id: str, final_status: str = "idle") -> Device | None:
+        return self.set_status(device_id, final_status)
+
     def delete_device(self, device_id: str) -> bool:
         if self.mysql:
             return self.mysql.delete_device(device_id)

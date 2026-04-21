@@ -19,6 +19,8 @@ import UserAdminView from '@/views/UserAdminView.vue'
 import UserProfileView from '@/views/UserProfileView.vue'
 import WorkbenchView from '@/views/WorkbenchView.vue'
 
+const isDevMode = import.meta.env.DEV || String(import.meta.env.VITE_DEV_MODE || '').toLowerCase() === 'true'
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -88,6 +90,7 @@ const router = createRouter({
         {
           path: 'research/workbench',
           component: WorkbenchView,
+          meta: { roles: ['admin'], devOnly: true },
         },
         {
           path: 'account/change-password',
@@ -118,6 +121,10 @@ router.beforeEach((to) => {
     return Array.isArray(roles) ? roles.map((role) => String(role).toLowerCase()) : []
   })
   if (requiredRoles.length > 0 && !requiredRoles.includes(currentRole)) {
+    return '/app/account/profile'
+  }
+  const devOnlyRoute = to.matched.some((record) => Boolean(record.meta.devOnly))
+  if (devOnlyRoute && !isDevMode) {
     return '/app/account/profile'
   }
   if ((to.name === 'login' || to.name === 'register') && auth.isAuthenticated) {

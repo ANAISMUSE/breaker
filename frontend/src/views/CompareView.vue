@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import http from '@/api/http'
@@ -109,7 +110,7 @@ function drawTrend(opt: Record<string, unknown>) {
       ...localized,
       color: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'],
       title: {
-        text: '茧房指数随模拟轮次变化',
+        text: '风险指数随轮次变化',
         left: 'center',
         top: 8,
         textStyle: { fontSize: 14, color: '#0f172a', fontWeight: 600 },
@@ -130,7 +131,7 @@ function drawTrend(opt: Record<string, unknown>) {
         ...(typeof localized.yAxis === 'object' && localized.yAxis ? localized.yAxis : {}),
         min: 0,
         max: 10,
-        name: '茧房指数（越高风险越大）',
+        name: '风险指数（越高风险越大）',
         nameTextStyle: { color: '#64748b', fontSize: 12 },
         splitLine: { lineStyle: { type: 'dashed', color: '#e2e8f0' } },
         axisLabel: { color: '#64748b' },
@@ -162,13 +163,13 @@ function drawEndBar(result: CompareResponse['result']) {
   barChart.setOption(
     {
       title: {
-        text: '静态基线 vs 模拟末轮',
+        text: '初始风险 vs 最后一轮风险',
         left: 'center',
         top: 8,
         textStyle: { fontSize: 14, color: '#0f172a', fontWeight: 600 },
       },
       tooltip: { trigger: 'axis' },
-      legend: { data: ['模拟前（静态）', '模拟后（末轮）'], bottom: 8 },
+      legend: { data: ['初始风险', '最后一轮风险'], bottom: 8 },
       grid: { left: 48, right: 16, top: 44, bottom: 48, containLabel: true },
       xAxis: {
         type: 'category',
@@ -179,13 +180,13 @@ function drawEndBar(result: CompareResponse['result']) {
         type: 'value',
         min: 0,
         max: 10,
-        name: '茧房指数',
+        name: '风险指数',
         splitLine: { lineStyle: { type: 'dashed', color: '#e2e8f0' } },
         axisLabel: { color: '#64748b' },
       },
       series: [
-        { name: '模拟前（静态）', type: 'bar', data: start, itemStyle: { color: '#94a3b8' }, barMaxWidth: 28 },
-        { name: '模拟后（末轮）', type: 'bar', data: end, itemStyle: { color: '#3b82f6' }, barMaxWidth: 28 },
+        { name: '初始风险', type: 'bar', data: start, itemStyle: { color: '#94a3b8' }, barMaxWidth: 28 },
+        { name: '最后一轮风险', type: 'bar', data: end, itemStyle: { color: '#3b82f6' }, barMaxWidth: 28 },
       ],
     },
     { notMerge: true },
@@ -205,7 +206,7 @@ function drawDropRank(result: CompareResponse['result']) {
   dropChart.setOption(
     {
       title: {
-        text: '相对静态基线的改善 Δ（静态指数 − 末轮指数）',
+        text: '相对初始风险的改善值 Δ（初始 − 最后一轮）',
         left: 'center',
         top: 6,
         textStyle: { fontSize: 13, color: '#0f172a', fontWeight: 600 },
@@ -433,7 +434,7 @@ function downloadText(filename: string, text: string, mime = 'application/json;c
 
 function exportJson() {
   if (!resultText.value) {
-    ElMessage.warning('请先运行对比，再导出 JSON')
+    ElMessage.warning('请先运行对比，再导出数据')
     return
   }
   downloadText(`compare-result-${Date.now()}.json`, resultText.value)
@@ -526,7 +527,12 @@ async function runCompare() {
     comparePayload.value = null
     bestInfo.value = null
     disposeCharts()
-    errorMsg.value = e instanceof Error ? e.message : '策略对比失败'
+    if (axios.isAxiosError(e)) {
+      const detail = e.response?.data?.detail
+      errorMsg.value = detail ? String(detail) : e.message
+    } else {
+      errorMsg.value = e instanceof Error ? e.message : '策略对比失败'
+    }
   } finally {
     loading.value = false
   }
@@ -553,7 +559,7 @@ onBeforeUnmount(() => {
   <div class="page">
     <div class="card">
       <div class="head">
-        <h1 class="title">平台对比（多策略模拟 · 可视化）</h1>
+        <h1 class="title">平台对比（策略效果可视化）</h1>
         <div class="head-actions">
           <span class="label">轮次</span>
           <el-input-number v-model="rounds" :min="1" :max="50" />
@@ -566,27 +572,27 @@ onBeforeUnmount(() => {
       <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
 
       <div class="preset-bar">
-        <span class="preset-title">固定回放模板</span>
+        <span class="preset-title">示例场景</span>
         <el-tooltip v-for="preset in compareReplayPresets" :key="preset.id" :content="preset.description" placement="top">
           <el-button size="small" @click="applyBuiltInPreset(preset.id)">{{ preset.label }}</el-button>
         </el-tooltip>
       </div>
 
       <div v-if="bestInfo" class="best">
-        <span class="best-tag">模拟推荐</span>
+        <span class="best-tag">系统建议</span>
         <span class="best-line">
-          静态茧房指数 <strong>{{ bestInfo.staticCocoon.toFixed(2) }}</strong>；
-          当前样本下最优策略为 <strong>{{ stratLabel(bestInfo.name) }}</strong>，
-          Δ = <strong>{{ bestInfo.drop.toFixed(3) }}</strong>（越大表示末轮相对静态改善越明显）。
+          当前样本的初始风险值 <strong>{{ bestInfo.staticCocoon.toFixed(2) }}</strong>；
+          推荐策略为 <strong>{{ stratLabel(bestInfo.name) }}</strong>，
+          改善值 Δ = <strong>{{ bestInfo.drop.toFixed(3) }}</strong>（越大代表优化越明显）。
         </span>
         <span v-if="bestInfo.reason" class="best-reason">{{ bestInfo.reason }}</span>
       </div>
 
       <div class="toolbar">
-        <span class="tb-label">rows</span>
-        <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
-        <el-button plain :loading="ladderLoading" @click="createLadderPlan">创建阶梯执行计划</el-button>
-        <el-button plain :disabled="!ladderExecutionId" :loading="ladderLoading" @click="refreshLadderState">刷新执行状态</el-button>
+        <span class="tb-label">对比样本数据</span>
+        <RowsFileImport format="auto" button-text="导入对比样本数据" @imported="onImportedRows" @error="onImportError" />
+        <el-button plain :loading="ladderLoading" @click="createLadderPlan">生成分步执行建议</el-button>
+        <el-button plain :disabled="!ladderExecutionId" :loading="ladderLoading" @click="refreshLadderState">刷新执行进度</el-button>
       </div>
 
       <div v-if="ladderState" class="ladder-card">
@@ -611,13 +617,13 @@ onBeforeUnmount(() => {
         <div ref="barEl" class="chart bar" />
         <div ref="dropEl" class="chart drop" />
       </div>
-      <p v-else-if="!loading" class="viz-hint">点击「运行对比」后在此展示趋势、末轮对比与改善排名。</p>
+      <p v-else-if="!loading" class="viz-hint">点击「运行对比」后，这里会展示趋势、结果对比和改善排名。</p>
 
       <div class="grid3">
-        <el-input v-model="rowsText" type="textarea" :rows="8" placeholder="rows JSON" />
-        <el-input v-model="benchmarkText" type="textarea" :rows="8" placeholder="benchmark JSON" />
+        <el-input v-model="rowsText" type="textarea" :rows="8" placeholder="对比样本数据（JSON 数组）" />
+        <el-input v-model="benchmarkText" type="textarea" :rows="8" placeholder="对比参考值（JSON 对象）" />
         <details class="json-details">
-          <summary>原始响应 JSON（调试用）</summary>
+          <summary>系统返回数据（高级/调试）</summary>
           <pre class="json-pre">{{ resultText || '（尚未运行）' }}</pre>
         </details>
       </div>

@@ -296,7 +296,7 @@ async function buildProfile() {
   errorMsg.value = ''
   try {
     const rows = JSON.parse(rowsText.value) as unknown
-    if (!Array.isArray(rows)) throw new Error('rows 必须是 JSON 数组')
+    if (!Array.isArray(rows)) throw new Error('样本数据必须是 JSON 数组')
     parsedRows.value = rows as JsonRow[]
     await runBuild(activeRows.value)
   } catch (e) {
@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
           v-model="rowsText"
           type="textarea"
           :rows="8"
-          placeholder="行为数据 rows JSON 数组"
+          placeholder="行为样本数据（JSON 数组）"
         />
       </div>
     </div>

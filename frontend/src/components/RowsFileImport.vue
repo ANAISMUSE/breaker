@@ -12,7 +12,7 @@ const props = withDefaults(
   {
     format: 'auto',
     accept: '.json,.csv,application/json,text/csv',
-    buttonText: '从文件导入 rows',
+    buttonText: '从文件导入样本数据',
   },
 )
 

@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 import uuid
 
+from src.agents.graph_definition import run_breakout_agent
 from src.repositories.factory import get_task_repository
 from src.repositories.interfaces import TaskEntity
+from src.services.device_service import Device, DeviceService
 from src.web.task_store import append_task_log
 
 
@@ -24,6 +26,7 @@ class CreateTaskInput:
 class TaskService:
     def __init__(self) -> None:
         self.repo = get_task_repository()
+        self.device_service = DeviceService()
 
     def list_tasks(self) -> list[TaskEntity]:
         return self.repo.list_tasks()
@@ -140,6 +143,178 @@ class TaskService:
         if not row:
             return None
         return self.repo.get_task(task_id)
+
+    def run_task(
+        self,
+        task_id: str,
+        *,
+        rows: list[dict] | None = None,
+        benchmark: dict[str, float] | None = None,
+        rounds: int | None = None,
+        device_id: str | None = None,
+    ) -> tuple[TaskEntity | None, dict | None, str | None]:
+        task = self.repo.get_task(task_id)
+        if not task:
+            return None, None, "task_not_found"
+
+        payload_rows, payload_benchmark = self._resolve_run_payload(task=task, rows=rows, benchmark=benchmark)
+        if not payload_rows or not payload_benchmark:
+            append_task_log(
+                task_id,
+                "error",
+                "task_run_rejected",
+                {"reason": "rows/benchmark missing"},
+            )
+            return task, None, "missing_rows_or_benchmark"
+
+        sim_rounds = rounds if rounds is not None else int(task.rounds or 6)
+        sim_rounds = max(1, min(50, int(sim_rounds)))
+        platform_hint = self._infer_platform(payload_rows)
+        locked_device = self._acquire_task_device(task_id, device_id=device_id, platform_hint=platform_hint)
+        if not locked_device:
+            append_task_log(
+                task_id,
+                "warn",
+                "task_run_rejected",
+                {"reason": "no_available_device", "preferred_platform": platform_hint, "requested_device_id": device_id or ""},
+            )
+            return task, None, "no_available_device"
+
+        self.repo.update_task(task_id, {"status": "running"})
+        append_task_log(
+            task_id,
+            "info",
+            "task_run_started",
+            {
+                "rows": len(payload_rows),
+                "benchmark_topics": len(payload_benchmark),
+                "sim_rounds": sim_rounds,
+                "device_id": locked_device.device_id,
+                "device_platform": locked_device.platform,
+            },
+        )
+        try:
+            state = run_breakout_agent(
+                {
+                    "rows": payload_rows,
+                    "benchmark": payload_benchmark,
+                    "trace": [],
+                    "semantic_enhanced": False,
+                    "sim_rounds": sim_rounds,
+                }
+            )
+            run_result = {
+                "evaluation": self._serialize_evaluation(state.get("evaluation_result")),
+                "evaluation_meta": state.get("evaluation_meta", {}),
+                "simulation_compare": state.get("simulation_compare", {}),
+                "policy_plan": state.get("policy_plan", []),
+                "ladder_plan": state.get("ladder_plan", []),
+                "trace": state.get("trace", []),
+                "errors": state.get("errors", []),
+                "confidence": state.get("confidence", {}),
+                "row_count": len(payload_rows),
+                "sim_rounds": sim_rounds,
+                "device": {
+                    "device_id": locked_device.device_id,
+                    "name": locked_device.name,
+                    "platform": locked_device.platform,
+                },
+                "finished_at": datetime.utcnow().isoformat() + "Z",
+            }
+            merged_snapshot = dict(task.snapshot or {})
+            merged_snapshot["rows"] = payload_rows
+            merged_snapshot["benchmark"] = payload_benchmark
+            merged_snapshot["run_result"] = run_result
+            self.repo.update_task(task_id, {"status": "completed", "snapshot": merged_snapshot})
+            self.device_service.release_device(locked_device.device_id, final_status="idle")
+            append_task_log(
+                task_id,
+                "info",
+                "task_run_completed",
+                {
+                    "cocoon_index": (
+                        run_result["evaluation"].get("cocoon_index")
+                        if isinstance(run_result.get("evaluation"), dict)
+                        else None
+                    ),
+                    "degraded": bool(run_result["errors"]),
+                    "device_id": locked_device.device_id,
+                },
+            )
+            return self.repo.get_task(task_id), run_result, None
+        except Exception as exc:
+            self.repo.update_task(task_id, {"status": "stopped"})
+            self.device_service.release_device(locked_device.device_id, final_status="error")
+            append_task_log(
+                task_id,
+                "error",
+                "task_run_failed",
+                {"error_type": exc.__class__.__name__, "message": str(exc), "device_id": locked_device.device_id},
+            )
+            return self.repo.get_task(task_id), None, "task_run_failed"
+
+    def _resolve_run_payload(
+        self,
+        *,
+        task: TaskEntity,
+        rows: list[dict] | None,
+        benchmark: dict[str, float] | None,
+    ) -> tuple[list[dict], dict[str, float]]:
+        snapshot = task.snapshot if isinstance(task.snapshot, dict) else {}
+        resolved_rows: list[dict] = rows if isinstance(rows, list) else snapshot.get("rows", [])
+        resolved_benchmark: dict[str, float] = benchmark if isinstance(benchmark, dict) else snapshot.get("benchmark", {})
+        if not isinstance(resolved_rows, list):
+            resolved_rows = []
+        if not isinstance(resolved_benchmark, dict):
+            resolved_benchmark = {}
+        return resolved_rows, resolved_benchmark
+
+    def _serialize_evaluation(self, evaluation: object) -> dict | None:
+        if evaluation is None:
+            return None
+        if isinstance(evaluation, dict):
+            return evaluation
+        data = getattr(evaluation, "__dict__", None)
+        if isinstance(data, dict):
+            return data
+        return None
+
+    def _infer_platform(self, rows: list[dict]) -> str:
+        if not rows:
+            return ""
+        counts: dict[str, int] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            platform = str(row.get("platform", "")).strip().lower()
+            if not platform:
+                continue
+            counts[platform] = counts.get(platform, 0) + 1
+        if not counts:
+            return ""
+        return max(counts.items(), key=lambda x: x[1])[0]
+
+    def _acquire_task_device(self, task_id: str, *, device_id: str | None, platform_hint: str) -> Device | None:
+        requested = (device_id or "").strip()
+        if requested:
+            picked = self.device_service.claim_device(requested)
+            if picked:
+                append_task_log(task_id, "info", "task_device_locked", {"device_id": picked.device_id, "mode": "manual"})
+            return picked
+        picked = self.device_service.acquire_device(preferred_platform=platform_hint)
+        if picked:
+            append_task_log(
+                task_id,
+                "info",
+                "task_device_locked",
+                {
+                    "device_id": picked.device_id,
+                    "mode": "auto",
+                    "preferred_platform": platform_hint,
+                    "device_platform": picked.platform,
+                },
+            )
+        return picked
 
     def export_task_logs_json(self, task_id: str) -> str | None:
         row = self.repo.get_task(task_id)

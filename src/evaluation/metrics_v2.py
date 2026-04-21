@@ -163,11 +163,31 @@ def kmeans_labels(X: np.ndarray, k: int, max_iter: int = 25, seed: int = 42) -> 
     return labels
 
 
+def _select_embedding_column(df: pd.DataFrame) -> str | None:
+    if "embedding_fused" in df.columns:
+        return "embedding_fused"
+    if "embedding" in df.columns:
+        return "embedding"
+    return None
+
+
+def embedding_vector_source(df: pd.DataFrame) -> str:
+    col = _select_embedding_column(df)
+    if col == "embedding_fused":
+        return "fused"
+    if col == "embedding":
+        return "legacy_embedding"
+    return "none"
+
+
 def dataframe_embeddings_matrix(df: pd.DataFrame) -> np.ndarray | None:
-    if "embedding" not in df.columns or df.empty:
+    if df.empty:
+        return None
+    vector_col = _select_embedding_column(df)
+    if vector_col is None:
         return None
     rows = []
-    for v in df["embedding"]:
+    for v in df[vector_col]:
         if v is None:
             return None
         arr = np.asarray(v, dtype=np.float64).ravel()
@@ -180,3 +200,24 @@ def dataframe_embeddings_matrix(df: pd.DataFrame) -> np.ndarray | None:
         return np.stack(rows, axis=0)
     except ValueError:
         return None
+
+
+def collect_multimodal_evidence(df: pd.DataFrame, top_k: int = 3) -> list[dict]:
+    if df.empty:
+        return []
+    scored = []
+    for _, row in df.iterrows():
+        evidence = row.get("multimodal_evidence", [])
+        if isinstance(evidence, list) and evidence:
+            scored.append(
+                {
+                    "content_id": str(row.get("content_id", "")),
+                    "topic": str(row.get("topic", "other")),
+                    "semantic_summary": str(row.get("semantic_summary", "")),
+                    "evidence": evidence[:5],
+                    "schema_version": str(row.get("multimodal_schema_version", "mm_v1")),
+                    "score": len(evidence),
+                }
+            )
+    scored.sort(key=lambda item: float(item.get("score", 0.0)), reverse=True)
+    return [{k: v for k, v in item.items() if k != "score"} for item in scored[: max(1, int(top_k))]]

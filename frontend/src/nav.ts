@@ -2,6 +2,7 @@ export interface NavChild {
   title: string
   path: string
   roles?: string[]
+  devOnly?: boolean
 }
 
 export interface NavGroup {
@@ -37,14 +38,11 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: '研发',
-    children: [{ title: '算法工作台', path: '/app/research/workbench' }],
-  },
-  {
     title: '账户',
     children: [
       { title: '个人信息', path: '/app/account/profile' },
       { title: '用户权限管理', path: '/app/account/users', roles: ['admin'] },
+      { title: '算法工作台', path: '/app/research/workbench', roles: ['admin'], devOnly: true },
       { title: '修改密码', path: '/app/account/change-password' },
     ],
   },

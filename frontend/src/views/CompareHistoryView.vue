@@ -77,7 +77,7 @@ async function loadRecords() {
 
 function replay(row: CompareHistoryRecord) {
   if (!Array.isArray(row.rows) || row.rows.length === 0) {
-    ElMessage.warning('该记录未包含 rows，暂不可回放')
+    ElMessage.warning('该记录缺少样本数据，暂时无法回放')
     return
   }
   const payload: ReplayPayload = {
@@ -92,7 +92,7 @@ function replay(row: CompareHistoryRecord) {
 
 function continueLadder(row: CompareHistoryRecord) {
   if (!Array.isArray(row.rows) || row.rows.length === 0) {
-    ElMessage.warning('该记录未包含 rows，暂不可继续执行')
+    ElMessage.warning('该记录缺少样本数据，暂时无法继续执行')
     return
   }
   const payload: ReplayPayload = {
@@ -113,13 +113,13 @@ onMounted(loadRecords)
     <div class="head">
       <div>
         <h1 class="title">平台对比历史记录</h1>
-        <p class="subtitle">支持筛选并一键回放到「平台对比」页，复现实验结论。</p>
+        <p class="subtitle">支持筛选并一键回放到「平台对比」页，复现上次分析结果。</p>
       </div>
       <el-button :loading="loading" @click="loadRecords">刷新</el-button>
     </div>
 
     <div class="filters">
-      <el-input v-model="userFilter" placeholder="按用户ID筛选" clearable style="max-width: 220px" />
+      <el-input v-model="userFilter" placeholder="按用户编号筛选" clearable style="max-width: 220px" />
       <el-select v-model="bestStrategyFilter" style="width: 220px">
         <el-option label="全部最优策略" value="all" />
         <el-option label="baseline" value="baseline" />
@@ -132,7 +132,7 @@ onMounted(loadRecords)
 
     <el-table v-loading="loading" :data="filteredRecords" stripe empty-text="暂无对比历史记录">
       <el-table-column prop="created_at" label="创建时间" min-width="180" />
-      <el-table-column prop="user_id" label="用户ID" min-width="140" />
+      <el-table-column prop="user_id" label="用户编号" min-width="140" />
       <el-table-column prop="rounds" label="轮次" min-width="80" />
       <el-table-column label="最优策略" min-width="120">
         <template #default="{ row }">{{ bestName(row) }}</template>
@@ -140,12 +140,12 @@ onMounted(loadRecords)
       <el-table-column label="改善Δ" min-width="100">
         <template #default="{ row }">{{ bestDrop(row) }}</template>
       </el-table-column>
-      <el-table-column prop="record_id" label="记录ID" min-width="240" show-overflow-tooltip />
+      <el-table-column prop="record_id" label="记录编号" min-width="240" show-overflow-tooltip />
       <el-table-column label="操作" min-width="200">
         <template #default="{ row }">
           <div class="ops">
-            <el-button size="small" type="primary" plain @click="replay(row)">回放</el-button>
-            <el-button size="small" plain @click="continueLadder(row)">继续执行</el-button>
+            <el-button size="small" type="primary" plain @click="replay(row)">重新载入</el-button>
+            <el-button size="small" plain @click="continueLadder(row)">去分步执行</el-button>
           </div>
         </template>
       </el-table-column>

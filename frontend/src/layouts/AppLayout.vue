@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const isDevMode = import.meta.env.DEV || String(import.meta.env.VITE_DEV_MODE || '').toLowerCase() === 'true'
 
 const activeMenu = computed(() => route.path)
 const role = computed(() => (auth.role || 'user').toLowerCase())
@@ -15,7 +16,9 @@ const visibleNavGroups = computed(() =>
   navGroups
     .map((group) => ({
       ...group,
-      children: group.children.filter((child) => !child.roles || child.roles.includes(role.value)),
+      children: group.children.filter(
+        (child) => (!child.roles || child.roles.includes(role.value)) && (!child.devOnly || isDevMode),
+      ),
     }))
     .filter((group) => group.children.length > 0)
 )
@@ -26,7 +29,7 @@ const groupIcon = (title: string) => {
     调度中心: Setting,
     分析中心: Monitor,
     数据与治理: FolderOpened,
-    研发: Cpu,
+    账户: Cpu,
   }
   return map[title] ?? Setting
 }

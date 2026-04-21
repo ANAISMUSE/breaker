@@ -32,7 +32,16 @@ def test_workflow_graph_runs_and_returns_trace() -> None:
         }
     )
     trace = state.get("trace", [])
-    assert len(trace) >= 4
-    assert any(item.get("node") == "embed" for item in trace)
+    assert len(trace) >= 6
+    assert any(item.get("agent") == "embedAgent" for item in trace)
+    assert any(item.get("agent") == "evalAgent" for item in trace)
+    assert any(item.get("agent") == "simulateAgent" for item in trace)
     assert "evaluation_result" in state
+    assert "evaluation_meta" in state
+    assert state["evaluation_meta"].get("embedding_vector_source") == "fused"
+    assert "evidence" in state
+    assert isinstance(state.get("evidence"), list)
+    assert len(state.get("evidence", [])) >= 1
     assert "ladder_plan" in state
+    assert "confidence" in state
+    assert "errors" in state

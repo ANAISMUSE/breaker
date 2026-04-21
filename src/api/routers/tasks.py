@@ -31,6 +31,13 @@ class LogIn(BaseModel):
     detail: dict = Field(default_factory=dict)
 
 
+class RunTaskIn(BaseModel):
+    rows: list[dict] | None = None
+    benchmark: dict[str, float] | None = None
+    rounds: int | None = None
+    device_id: str | None = None
+
+
 @router.get("")
 def list_tasks() -> list[dict]:
     return [t.__dict__ for t in service.list_tasks()]
@@ -112,6 +119,29 @@ def write_task_log(task_id: str, payload: LogIn) -> dict:
     if not row:
         raise HTTPException(status_code=404, detail="task not found")
     return row.__dict__
+
+
+@router.post("/{task_id}/run")
+def run_task(task_id: str, payload: RunTaskIn) -> dict:
+    row, run_result, reason = service.run_task(
+        task_id,
+        rows=payload.rows,
+        benchmark=payload.benchmark,
+        rounds=payload.rounds,
+        device_id=payload.device_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="task not found")
+    if run_result is None:
+        if reason == "no_available_device":
+            raise HTTPException(status_code=409, detail="no available device (idle) for this task")
+        if reason == "missing_rows_or_benchmark":
+            raise HTTPException(
+                status_code=400,
+                detail="task run requires rows and benchmark (provide payload or snapshot.rows/snapshot.benchmark)",
+            )
+        raise HTTPException(status_code=500, detail=f"task run failed: {reason or 'unknown_error'}")
+    return {"task": row.__dict__, "run_result": run_result}
 
 
 @router.get("/{task_id}/logs/export")

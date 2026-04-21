@@ -7,7 +7,14 @@ import pandas as pd
 
 from src.evaluation.index_pipeline import EvaluationResultV2, evaluate_cocoon_pdf36
 from src.evaluation.metrics_v2 import dataframe_embeddings_matrix
-from src.simulation.action_generation import ACTION_TYPES, CandidateContent, sample_user_action
+from src.llm import get_llm_provider
+from src.simulation.action_generation import (
+    ACTION_TYPES,
+    CandidateContent,
+    roulette_choice,
+    score_action_vector,
+    softmax_zscores,
+)
 from src.twin.twin_builder import DigitalTwinProfile
 
 
@@ -23,6 +30,8 @@ class SimulationRoundResult:
     round_index: int
     cocoon: EvaluationResultV2
     actions_summary: dict[str, int] = field(default_factory=dict)
+    llm_acceptance_shift: float = 0.0
+    llm_preferred_action: str = ""
 
 
 def _synth_row_from_candidate(
@@ -70,11 +79,136 @@ def _can_broadcast_scalar_fill(val: object) -> bool:
     return True
 
 
+def _llm_acceptance_shift(candidate: CandidateContent, profile: DigitalTwinProfile, provider) -> float:
+    """
+    LLM 认知转移修正项（-0.2~0.2）：
+    - 若候选内容位于高频主题邻域，提升接受度；
+    - 若候选话题明显盲区，保持适中探索增益。
+    """
+    try:
+        extraction = provider.extract_semantics(text=candidate.text_summary)
+        topic = (extraction.topic or candidate.topic).lower()
+    except Exception:
+        topic = candidate.topic.lower()
+    tw = {str(k).lower(): float(v) for k, v in profile.interest.topic_weights.items()}
+    if not tw:
+        return 0.0
+    if topic in tw:
+        return min(0.2, 0.05 + tw[topic] * 0.3)
+    return 0.08
+
+
+def _parse_round_adjustments(raw: object, sample_size: int) -> dict[int, dict]:
+    out: dict[int, dict] = {}
+    if not isinstance(raw, dict):
+        return out
+    items = raw.get("adjustments", [])
+    if not isinstance(items, list):
+        return out
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        idx = int(item.get("idx", -1))
+        if idx < 0 or idx >= sample_size:
+            continue
+        action_bias = item.get("action_bias", {})
+        if not isinstance(action_bias, dict):
+            action_bias = {}
+        acceptance = float(item.get("acceptance_shift", 0.0) or 0.0)
+        acceptance = float(min(0.25, max(-0.25, acceptance)))
+        out[idx] = {
+            "acceptance_shift": acceptance,
+            "preferred_action": str(item.get("preferred_action", "")),
+            "action_bias": {str(k): float(v) for k, v in action_bias.items() if str(k) in ACTION_TYPES},
+        }
+    return out
+
+
+def _heuristic_round_adjustments(candidates: list[CandidateContent], profile: DigitalTwinProfile) -> dict[int, dict]:
+    tw = {str(k).lower(): float(v) for k, v in profile.interest.topic_weights.items()}
+    out: dict[int, dict] = {}
+    for idx, item in enumerate(candidates):
+        weight = tw.get(item.topic.lower(), 0.0)
+        if weight >= 0.2:
+            out[idx] = {
+                "acceptance_shift": 0.12,
+                "preferred_action": "like",
+                "action_bias": {"like": 0.18, "skip": -0.12},
+            }
+        else:
+            out[idx] = {
+                "acceptance_shift": 0.05,
+                "preferred_action": "search",
+                "action_bias": {"search": 0.2, "skip": -0.05},
+            }
+    return out
+
+
+def _llm_round_adjustments(
+    *,
+    candidates: list[CandidateContent],
+    profile: DigitalTwinProfile,
+    strategy: BreakoutStrategy,
+    round_index: int,
+    history: list[SimulationRoundResult],
+    llm_enabled: bool = True,
+) -> dict[int, dict]:
+    if not llm_enabled:
+        return _heuristic_round_adjustments(candidates, profile)
+    provider = get_llm_provider()
+    short_candidates = [
+        {"idx": idx, "topic": c.topic, "stance": c.stance, "novelty": round(float(c.novelty_keywords), 3)}
+        for idx, c in enumerate(candidates)
+    ]
+    prompt = (
+        "你是认知转移模拟器。请严格输出JSON对象。"
+        "字段为 adjustments(list)。每个元素字段: idx(int), acceptance_shift(-0.25~0.25),"
+        " preferred_action(like|comment|search|like_comment|skip),"
+        " action_bias(object, 可选键同动作，值在-0.3~0.3)。"
+        f"\nstrategy={strategy.value}"
+        f"\nround_index={round_index}"
+        f"\nprofile_top_topics={profile.interest.top_topics[:4]}"
+        f"\nrecent_cocoon_series={[round(x.cocoon.cocoon_index, 3) for x in history[-3:]]}"
+        f"\ncandidates={short_candidates}"
+    )
+    try:
+        result = provider.invoke_json(prompt=prompt, temperature=0.2, retry_on_parse_error=True)
+        parsed = result.parsed_json if isinstance(result.parsed_json, (dict, list)) else None
+        if isinstance(parsed, dict):
+            structured = _parse_round_adjustments(parsed, len(candidates))
+            if structured:
+                return structured
+    except Exception:
+        pass
+    return _heuristic_round_adjustments(candidates, profile)
+
+
+def _sample_action_with_bias(
+    candidate: CandidateContent,
+    profile: DigitalTwinProfile,
+    rng: np.random.Generator,
+    action_bias: dict[str, float] | None = None,
+) -> tuple[str, np.ndarray]:
+    raw = score_action_vector(candidate, profile)
+    probs = softmax_zscores(raw)
+    action_bias = action_bias or {}
+    if action_bias:
+        boost = np.ones(len(ACTION_TYPES), dtype=np.float64)
+        for idx, name in enumerate(ACTION_TYPES):
+            delta = float(action_bias.get(name, 0.0))
+            boost[idx] = np.exp(max(-1.0, min(1.0, delta)))
+        probs = probs * boost
+        probs = probs / (probs.sum() + 1e-12)
+    idx = roulette_choice(probs, rng=rng)
+    return ACTION_TYPES[idx], probs
+
+
 def build_candidate_pool(
     profile: DigitalTwinProfile,
     strategy: BreakoutStrategy,
     rng: np.random.Generator,
     pool_size: int = 12,
+    llm_enabled: bool = True,
 ) -> list[CandidateContent]:
     """根据策略生成破茧内容候选池（简化：主题在核心/邻域/盲区间插值）。"""
     topics = list(profile.interest.topic_weights.keys()) or ["other"]
@@ -123,6 +257,7 @@ def run_strategy_simulation(
     strategy: BreakoutStrategy,
     rounds: int = 14,
     rng: np.random.Generator | None = None,
+    llm_enabled: bool = True,
 ) -> tuple[list[SimulationRoundResult], pd.DataFrame, EvaluationResultV2]:
     """多轮：每轮从候选池抽样内容→动作生成→拼接到历史→重算动态茧房指数。"""
     rng = rng or np.random.default_rng()
@@ -130,12 +265,41 @@ def run_strategy_simulation(
     series: list[SimulationRoundResult] = []
     static_ev = evaluate_cocoon_pdf36(base_df, benchmark_dist, mode="static")
 
+    # Keep interactive compare responsive: only a small LLM budget per strategy,
+    # then fallback to deterministic heuristics for remaining rounds.
+    llm_round_budget = 3
     for r in range(rounds):
-        pool = build_candidate_pool(profile, strategy, rng, pool_size=10)
+        pool = build_candidate_pool(profile, strategy, rng, pool_size=10, llm_enabled=llm_enabled)
+        sampled = pool[:5]
+        allow_llm_this_round = llm_enabled and r < llm_round_budget
+        adjustments = _llm_round_adjustments(
+            candidates=sampled,
+            profile=profile,
+            strategy=strategy,
+            round_index=r,
+            history=series,
+            llm_enabled=allow_llm_this_round,
+        )
         actions_count = {a: 0 for a in ACTION_TYPES}
         new_rows: list[dict] = []
-        for cand in pool[:5]:
-            action, _, _ = sample_user_action(cand, profile, rng=rng)
+        acceptance_total = 0.0
+        preferred_actions: list[str] = []
+        for idx, cand in enumerate(sampled):
+            adj = adjustments.get(idx, {})
+            acceptance_shift = float(adj.get("acceptance_shift", 0.0) or 0.0)
+            if acceptance_shift:
+                cand.novelty_keywords = float(min(1.0, max(0.0, cand.novelty_keywords + acceptance_shift)))
+                cand.platform_engagement = float(min(1.0, max(0.0, cand.platform_engagement + acceptance_shift * 0.5)))
+            acceptance_total += acceptance_shift
+            preferred = str(adj.get("preferred_action", ""))
+            if preferred:
+                preferred_actions.append(preferred)
+            action, _ = _sample_action_with_bias(
+                cand,
+                profile,
+                rng=rng,
+                action_bias=adj.get("action_bias", {}) if isinstance(adj, dict) else {},
+            )
             actions_count[action] = actions_count.get(action, 0) + 1
             row = _synth_row_from_candidate(cand, action)
             new_rows.append(row)
@@ -152,7 +316,16 @@ def run_strategy_simulation(
                     continue
                 sim_df[col] = val
         ev = evaluate_cocoon_pdf36(sim_df, benchmark_dist, mode="dynamic")
-        series.append(SimulationRoundResult(round_index=r, cocoon=ev, actions_summary=actions_count))
+        dominant = max(preferred_actions, key=preferred_actions.count) if preferred_actions else ""
+        series.append(
+            SimulationRoundResult(
+                round_index=r,
+                cocoon=ev,
+                actions_summary=actions_count,
+                llm_acceptance_shift=acceptance_total / max(1, len(sampled)),
+                llm_preferred_action=dominant,
+            )
+        )
 
     final_df = pd.DataFrame(hist_rows)
     final_ev = series[-1].cocoon if series else static_ev
@@ -165,6 +338,7 @@ def compare_strategies(
     benchmark_dist: dict[str, float],
     rounds: int = 10,
     seed: int = 42,
+    llm_enabled: bool = True,
 ) -> dict[str, dict]:
     """对四套策略各跑一遍，返回茧房指数变化与最优策略名。"""
     rng_master = np.random.default_rng(seed)
@@ -173,20 +347,39 @@ def compare_strategies(
     llm_enhanced = dataframe_embeddings_matrix(base_df) is not None
     best_name = ""
     best_drop = -1e9
+    llm_strategies = {BreakoutStrategy.ladder, BreakoutStrategy.mixed}
     for strat in BreakoutStrategy:
         rng = np.random.default_rng(int(rng_master.integers(0, 1_000_000)))
+        llm_enabled_for_strategy = llm_enabled and strat in llm_strategies
         series, _, final_ev = run_strategy_simulation(
-            profile, base_df, benchmark_dist, strat, rounds=rounds, rng=rng
+            profile,
+            base_df,
+            benchmark_dist,
+            strat,
+            rounds=rounds,
+            rng=rng,
+            llm_enabled=llm_enabled_for_strategy,
         )
         c0 = static.cocoon_index
         c1 = final_ev.cocoon_index
         drop = c0 - c1
         tail = [sr.cocoon.cocoon_index for sr in series]
+        trajectory = [
+            {
+                "round": sr.round_index,
+                "cocoon_index": round(float(sr.cocoon.cocoon_index), 4),
+                "actions": sr.actions_summary,
+                "llm_acceptance_shift": round(float(sr.llm_acceptance_shift), 4),
+                "llm_preferred_action": sr.llm_preferred_action,
+            }
+            for sr in series
+        ]
         results[strat.value] = {
             "cocoon_start": c0,
             "cocoon_end": c1,
             "drop": round(drop, 3),
             "series": [c0] + tail,
+            "trajectory": trajectory,
             "llm_enhanced": llm_enhanced,
             "explanation": _strategy_explanation(strat, drop=drop, llm_enhanced=llm_enhanced),
         }

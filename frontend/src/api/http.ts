@@ -2,7 +2,7 @@ import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 
 const http = axios.create({
-  timeout: 60000,
+  timeout: 300000,
 })
 
 http.interceptors.request.use((config) => {

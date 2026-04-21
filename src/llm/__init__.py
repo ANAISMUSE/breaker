@@ -7,7 +7,8 @@ from src.llm.providers.local_provider import LocalProvider
 
 
 def get_llm_provider() -> LlmProvider:
+    mode = settings.inference_mode.strip().lower()
     provider = settings.llm_provider.strip().lower()
-    if provider == "local":
+    if mode == "local" or provider == "local":
         return LocalProvider()
     return DashScopeProvider()

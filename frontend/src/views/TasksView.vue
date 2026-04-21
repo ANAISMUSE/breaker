@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import axios from 'axios'
 import http from '@/api/http'
+import RowsFileImport from '@/components/RowsFileImport.vue'
+import { demoBenchmark, demoRows } from '@/constants/demoData'
 
 interface TaskRow {
   task_id: string
@@ -29,7 +32,16 @@ interface TaskLogsPayload {
   total_pages: number
 }
 
+interface DeviceRow {
+  device_id: string
+  name: string
+  platform: string
+  status: string
+  last_seen: string
+}
+
 const tasks = ref<TaskRow[]>([])
+const devices = ref<DeviceRow[]>([])
 const loading = ref(true)
 const errorMsg = ref('')
 
@@ -38,12 +50,15 @@ const taskStrategies = ['baseline', 'aggressive', 'ladder', 'mixed'] as const
 
 const creating = ref(false)
 const updatingTaskId = ref<string | null>(null)
+const runningTaskId = ref<string | null>(null)
 
 const createForm = ref({
   name: '',
   strategy: 'baseline',
   rounds: 14,
-  snapshotText: '{}',
+  rowsText: JSON.stringify(demoRows, null, 2),
+  benchmarkText: JSON.stringify(demoBenchmark, null, 2),
+  extraSnapshotText: '{}',
 })
 
 const taskDialogVisible = ref(false)
@@ -52,6 +67,7 @@ const taskLogs = ref<TaskLog[]>([])
 const taskDetailLoading = ref(false)
 const snapshotAppendText = ref('{}')
 const snapshotAppending = ref(false)
+const runDeviceId = ref('')
 const logQueryLevel = ref('')
 const logQueryEvent = ref('')
 const logQueryTimeRange = ref<string[]>([])
@@ -86,11 +102,16 @@ async function load() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const { data } = await http.get<TaskRow[]>('/api/tasks')
-    tasks.value = Array.isArray(data) ? data : []
+    const [{ data: taskRows }, { data: deviceRows }] = await Promise.all([
+      http.get<TaskRow[]>('/api/tasks'),
+      http.get<DeviceRow[]>('/api/devices'),
+    ])
+    tasks.value = Array.isArray(taskRows) ? taskRows : []
+    devices.value = Array.isArray(deviceRows) ? deviceRows : []
   } catch {
     errorMsg.value = '加载任务列表失败'
     tasks.value = []
+    devices.value = []
   } finally {
     loading.value = false
   }
@@ -102,12 +123,31 @@ async function createTask() {
     return
   }
 
-  let snapshot: Record<string, unknown> = {}
+  let rows: Record<string, unknown>[] = []
+  let benchmark: Record<string, unknown> = {}
+  let extraSnapshot: Record<string, unknown> = {}
   try {
-    const parsed = JSON.parse(createForm.value.snapshotText || '{}') as unknown
-    snapshot = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+    const parsedRows = JSON.parse(createForm.value.rowsText || '[]') as unknown
+    if (!Array.isArray(parsedRows)) {
+      throw new Error('样本数据必须是 JSON 数组')
+    }
+    rows = parsedRows as Record<string, unknown>[]
+    const parsedBenchmark = JSON.parse(createForm.value.benchmarkText || '{}') as unknown
+    if (!parsedBenchmark || typeof parsedBenchmark !== 'object' || Array.isArray(parsedBenchmark)) {
+      throw new Error('参考值必须是 JSON 对象')
+    }
+    benchmark = parsedBenchmark as Record<string, unknown>
+    const parsedExtra = JSON.parse(createForm.value.extraSnapshotText || '{}') as unknown
+    extraSnapshot =
+      parsedExtra && typeof parsedExtra === 'object' && !Array.isArray(parsedExtra)
+        ? (parsedExtra as Record<string, unknown>)
+        : {}
   } catch {
-    errorMsg.value = 'snapshot 必须是合法 JSON 对象'
+    errorMsg.value = '任务配置解析失败：请检查样本数据、参考值和附加信息的 JSON 格式'
+    return
+  }
+  if (!rows.length || !Object.keys(benchmark).length) {
+    errorMsg.value = '创建任务前请先配置样本数据和参考值'
     return
   }
 
@@ -118,13 +158,19 @@ async function createTask() {
       name: createForm.value.name.trim(),
       strategy: createForm.value.strategy,
       rounds: createForm.value.rounds,
-      snapshot,
+      snapshot: {
+        ...extraSnapshot,
+        rows,
+        benchmark,
+      },
     })
 
     createForm.value.name = ''
     createForm.value.strategy = 'baseline'
     createForm.value.rounds = 14
-    createForm.value.snapshotText = '{}'
+    createForm.value.rowsText = JSON.stringify(demoRows, null, 2)
+    createForm.value.benchmarkText = JSON.stringify(demoBenchmark, null, 2)
+    createForm.value.extraSnapshotText = '{}'
     await load()
   } catch {
     errorMsg.value = '创建任务失败'
@@ -143,6 +189,28 @@ async function updateStatus(task: TaskRow) {
     errorMsg.value = '更新任务状态失败'
   } finally {
     updatingTaskId.value = null
+  }
+}
+
+async function runTask(task: TaskRow, useSelectedDevice = false) {
+  runningTaskId.value = task.task_id
+  errorMsg.value = ''
+  try {
+    const payload: Record<string, unknown> = useSelectedDevice ? { device_id: runDeviceId.value || undefined } : {}
+    await http.post(`/api/tasks/${task.task_id}/run`, payload)
+    await load()
+    if (taskDialogTask.value?.task_id === task.task_id) {
+      await loadTaskDetail(task.task_id)
+    }
+  } catch (e) {
+    if (axios.isAxiosError(e)) {
+      const detail = e.response?.data?.detail
+      errorMsg.value = detail ? String(detail) : e.message
+    } else {
+      errorMsg.value = e instanceof Error ? e.message : '运行任务失败'
+    }
+  } finally {
+    runningTaskId.value = null
   }
 }
 
@@ -182,9 +250,45 @@ async function openDetail(task: TaskRow) {
   logPage.value = 1
   logPageSize.value = 10
   logTotal.value = 0
+  runDeviceId.value = ''
   taskDialogTask.value = task
   taskDialogVisible.value = true
   await loadTaskDetail(task.task_id)
+}
+
+function taskRowsCount(task: TaskRow): number {
+  const rows = task.snapshot?.rows
+  return Array.isArray(rows) ? rows.length : 0
+}
+
+function taskBenchmarkCount(task: TaskRow): number {
+  const benchmark = task.snapshot?.benchmark
+  return benchmark && typeof benchmark === 'object' && !Array.isArray(benchmark) ? Object.keys(benchmark).length : 0
+}
+
+function applyDemoConfig() {
+  createForm.value.rowsText = JSON.stringify(demoRows, null, 2)
+  createForm.value.benchmarkText = JSON.stringify(demoBenchmark, null, 2)
+}
+
+function onImportedRows(
+  rows: Record<string, unknown>[],
+  _meta?: {
+    format: string
+    rowCount: number
+    filename: string
+    detectedPlatform: string
+    invalidRowCount: number
+    invalidRows: Array<{ row_index: number; reason: string; content_id: string }>
+    warnings: string[]
+  },
+) {
+  errorMsg.value = ''
+  createForm.value.rowsText = JSON.stringify(rows, null, 2)
+}
+
+function onImportError(message: string) {
+  errorMsg.value = message
 }
 
 async function applyLogFilter() {
@@ -332,11 +436,35 @@ onMounted(load)
         <el-form-item>
           <el-button type="primary" :loading="creating" @click="createTask">创建</el-button>
         </el-form-item>
+        <el-form-item>
+          <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
+        </el-form-item>
+        <el-form-item>
+          <el-button plain @click="applyDemoConfig">填充演示任务数据</el-button>
+        </el-form-item>
       </el-form>
 
       <div class="snapshot-box">
-        <div class="snapshot-label">snapshot（JSON，对后端任务记录用；可留空/保持默认）</div>
-        <el-input v-model="createForm.snapshotText" type="textarea" :rows="3" placeholder='例如：{"snapshots":[...]}'
+        <div class="snapshot-label">任务输入配置（创建时设置，运行时自动沿用）</div>
+        <el-input
+          v-model="createForm.rowsText"
+          type="textarea"
+          :rows="5"
+          placeholder='样本数据（JSON 数组），例如：[{"content_id":"1","platform":"douyin","topic":"technology","text":"..."}]'
+        />
+        <el-input
+          v-model="createForm.benchmarkText"
+          type="textarea"
+          :rows="3"
+          placeholder='参考值设置（JSON 对象），例如：{"technology":0.4,"society":0.3}'
+          style="margin-top: 8px"
+        />
+        <el-input
+          v-model="createForm.extraSnapshotText"
+          type="textarea"
+          :rows="2"
+          placeholder='可选附加信息（JSON 对象）'
+          style="margin-top: 8px"
         />
       </div>
 
@@ -345,6 +473,11 @@ onMounted(load)
         <el-table-column prop="strategy" label="策略" width="120" />
         <el-table-column prop="status" label="状态" width="120" />
         <el-table-column prop="rounds" label="轮次" width="80" />
+        <el-table-column label="任务数据" min-width="150">
+          <template #default="{ row }">
+            样本={{ taskRowsCount(row) }} / 参考值={{ taskBenchmarkCount(row) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" min-width="180" />
         <el-table-column prop="task_id" label="任务 ID" min-width="260" show-overflow-tooltip />
         <el-table-column label="操作" min-width="560">
@@ -360,6 +493,14 @@ onMounted(load)
                 @click="updateStatus(row)"
               >
                 更新
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                :loading="runningTaskId === row.task_id"
+                @click="runTask(row)"
+              >
+                运行
               </el-button>
               <el-button size="small" @click="openDetail(row)">详情</el-button>
               <el-button size="small" @click="exportTaskJson(row.task_id)">导出JSON</el-button>
@@ -396,6 +537,33 @@ onMounted(load)
           <div class="append-actions">
             <el-button type="primary" size="small" :loading="snapshotAppending" @click="appendSnapshotFromDialog">
               追加 snapshot
+            </el-button>
+          </div>
+        </div>
+        <div class="dialog-snapshot">
+          <div class="dialog-snapshot-title">运行设置（仅选择设备，任务数据沿用创建配置）</div>
+          <el-select
+            v-model="runDeviceId"
+            clearable
+            placeholder="可选：指定设备（为空则自动调度 idle 设备）"
+            style="width: 100%; margin-bottom: 8px"
+          >
+            <el-option
+              v-for="d in devices"
+              :key="d.device_id"
+              :label="`${d.name} (${d.platform}) - ${d.status}`"
+              :value="d.device_id"
+              :disabled="d.status !== 'idle'"
+            />
+          </el-select>
+          <div class="append-actions">
+            <el-button
+              type="success"
+              size="small"
+              :loading="runningTaskId === taskDialogTask.task_id"
+              @click="runTask(taskDialogTask, true)"
+            >
+              运行当前任务
             </el-button>
           </div>
         </div>
