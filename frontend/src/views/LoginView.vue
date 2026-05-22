@@ -39,9 +39,13 @@ async function onSubmit() {
 
 <template>
   <div class="login-page">
+    <div class="bg-pattern" />
     <div class="login-card">
-      <h1 class="login-title">登录</h1>
-      <p class="login-hint">使用后端接口 POST /api/auth/login</p>
+      <div class="brand-area">
+        <h1 class="login-title">茧评</h1>
+        <p class="login-subtitle">信息茧房综合评估系统</p>
+        <p class="login-desc">Cocoon Insight — 基于LLM语义嵌入与智能体模拟的茧房评估平台</p>
+      </div>
 
       <form class="login-form" @submit.prevent="onSubmit">
         <label class="field">
@@ -50,17 +54,11 @@ async function onSubmit() {
         </label>
         <label class="field">
           <span class="label">密码</span>
-          <input
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            class="input"
-            placeholder="请输入密码"
-          />
+          <input v-model="password" type="password" autocomplete="current-password" class="input" placeholder="请输入密码" />
         </label>
         <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
         <button type="submit" class="submit" :disabled="loading">
-          {{ loading ? '登录中…' : '登录' }}
+          {{ loading ? '登录中…' : '登 录' }}
         </button>
       </form>
 
@@ -71,34 +69,78 @@ async function onSubmit() {
 
 <style scoped>
 .login-page {
-  min-height: 100%;
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: linear-gradient(180deg, #f0f7ff 0%, #e3eefc 45%, #d4e5fa 100%);
+  position: relative;
+  overflow: hidden;
+  background-image: url('/login-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.bg-pattern {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 16, 32, 0.40);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
-  padding: 32px 28px 28px;
-  background: #fff;
+  max-width: 420px;
+  padding: 40px 36px 32px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+  border-radius: 20px;
+  box-shadow:
+    0 20px 60px rgba(18, 127, 237, 0.10),
+    0 4px 16px rgba(15, 23, 42, 0.06);
+  position: relative;
+  z-index: 1;
+}
+
+.brand-area {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
   border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  background: linear-gradient(135deg, #127fed 0%, #60affe 100%);
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(18, 127, 237, 0.30);
 }
 
 .login-title {
-  margin: 0 0 8px;
-  font-size: 1.5rem;
-  font-weight: 700;
+  margin: 0 0 4px;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: 2px;
   color: #0f172a;
 }
 
-.login-hint {
-  margin: 0 0 24px;
-  font-size: 0.8rem;
+.login-subtitle {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.login-desc {
+  margin: 0;
+  font-size: 0.78rem;
   color: #94a3b8;
+  line-height: 1.5;
 }
 
 .login-form {
@@ -122,40 +164,50 @@ async function onSubmit() {
 .input {
   width: 100%;
   padding: 12px 14px;
-  border: none;
+  border: 1.5px solid #e2e8f0;
   border-radius: 10px;
-  font-size: 1rem;
-  background: #eef5ff;
+  font-size: 0.95rem;
+  background: #fafbfc;
   color: #0f172a;
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .input:focus {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+  border-color: #127fed;
+  box-shadow: 0 0 0 3px rgba(18, 127, 237, 0.12);
 }
 
 .error {
   margin: 0;
   font-size: 0.85rem;
   color: #dc2626;
+  text-align: center;
 }
 
 .submit {
-  margin-top: 8px;
+  margin-top: 6px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 13px 16px;
   border: none;
-  border-radius: 10px;
+  border-radius: 11px;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 4px;
   color: #fff;
   cursor: pointer;
-  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
-  transition: opacity 0.15s ease;
+  background: linear-gradient(135deg, #127fed 0%, #60affe 100%);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 6px 20px rgba(18, 127, 237, 0.28);
 }
 
 .submit:hover:not(:disabled) {
-  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 26px rgba(18, 127, 237, 0.38);
+}
+
+.submit:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .submit:disabled {
@@ -164,11 +216,13 @@ async function onSubmit() {
 }
 
 .register-link {
-  display: inline-block;
-  margin-top: 20px;
+  display: block;
+  text-align: center;
+  margin-top: 22px;
   font-size: 0.9rem;
-  color: #3b82f6;
+  color: #127fed;
   text-decoration: none;
+  font-weight: 500;
 }
 
 .register-link:hover {

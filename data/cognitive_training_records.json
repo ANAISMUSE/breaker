@@ -1,5 +1,54 @@
 [
   {
+    "training_id": "1a39cf01-33a7-4e9d-a528-70eebab5a49f",
+    "topic": "科技",
+    "pro_view": "AI技术将深刻改变人类生活，带来效率革命",
+    "con_view": "AI技术可能导致大规模失业和隐私危机",
+    "status": "submitted",
+    "summary": "AI技术既有提升效率的潜力，也需要关注就业转型和隐私保护，关键在于制度设计和技术治理的平衡。",
+    "reflection": "我之前只关注了AI的便利性，忽略了社会层面的风险，需要更全面地看待技术发展。",
+    "score": 0.8,
+    "feedback": "学员能够认识到AI技术带来的多方面影响，并提出平衡制度设计和技术治理的观点。",
+    "evidence": [
+      "正方强调AI技术的正面效应",
+      "反方指出潜在的社会风险",
+      "学员总结中提到需关注就业转型和隐私保护"
+    ],
+    "messages": [],
+    "created_at": "2026-05-21T05:45:09.613790Z",
+    "updated_at": "2026-05-21T05:45:10.968962Z"
+  },
+  {
+    "training_id": "c40b3443-919b-4371-92b4-36e83f8c052e",
+    "topic": "科技",
+    "pro_view": "AI技术将深刻改变人类生活，带来效率革命",
+    "con_view": "AI技术可能导致大规模失业和隐私危机",
+    "status": "submitted",
+    "summary": "AI技术既有提升效率的潜力，也需要关注就业转型和隐私保护，关键在于制度设计和技术治理的平衡。",
+    "reflection": "我之前只关注了AI的便利性，忽略了社会层面的风险，需要更全面地看待技术发展。",
+    "score": 0.0,
+    "feedback": "LLM 评阅暂不可用: 400 Client Error: Bad Request for url: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "evidence": [],
+    "messages": [],
+    "created_at": "2026-05-21T05:40:05.940775Z",
+    "updated_at": "2026-05-21T05:40:06.372845Z"
+  },
+  {
+    "training_id": "eef76af1-7754-48a7-9cc9-555160cc1e8e",
+    "topic": "科技",
+    "pro_view": "AI技术将深刻改变人类生活，带来效率革命",
+    "con_view": "AI技术可能导致大规模失业和隐私危机",
+    "status": "started",
+    "summary": "",
+    "reflection": "",
+    "score": 0.0,
+    "feedback": "",
+    "evidence": [],
+    "messages": [],
+    "created_at": "2026-05-21T05:37:56.170702Z",
+    "updated_at": "2026-05-21T05:37:56.170702Z"
+  },
+  {
     "training_id": "547fa48e-91bb-43e7-9107-bb761ba173fd",
     "topic": "AI是否应该取代部分人类工作",
     "pro_view": "支持：提升效率、降低重复劳动成本、释放创造力。",

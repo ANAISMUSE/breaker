@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
 import RowsFileImport from '@/components/RowsFileImport.vue'
@@ -23,6 +23,17 @@ const rightMode = ref<'visual' | 'json'>('visual')
 const records = ref<PersonaRecord[]>([])
 const recordsLoading = ref(false)
 const previewingRecordId = ref('')
+const buildProgress = ref(0)
+const buildStepLabel = ref('')
+
+const dataReady = computed(() => {
+  try {
+    const r = JSON.parse(rowsText.value)
+    return Array.isArray(r) && r.length > 0
+  } catch {
+    return false
+  }
+})
 
 const createVisible = ref(false)
 const createUserId = ref('unknown')
@@ -77,7 +88,27 @@ function applyPreset(rows: Record<string, unknown>[]) {
 async function build() {
   loading.value = true
   errorMsg.value = ''
+  buildProgress.value = 0
+  buildStepLabel.value = '正在解析用户行为数据…'
+
+  const steps = [
+    { label: '正在解析用户行为数据…', pct: 15 },
+    { label: '正在提取兴趣特征…', pct: 30 },
+    { label: '正在分析行为模式…', pct: 50 },
+    { label: '正在构建认知维度…', pct: 65 },
+    { label: '正在生成孪生画像…', pct: 80 },
+  ]
+
   try {
+    for (const step of steps) {
+      buildStepLabel.value = step.label
+      buildProgress.value = step.pct
+      await new Promise((r) => setTimeout(r, 350))
+    }
+
+    buildStepLabel.value = '正在调用 AI 生成人设画像…'
+    buildProgress.value = 88
+
     const rows = JSON.parse(rowsText.value) as Array<Record<string, unknown>>
     const { data } = await http.post<{
       profile_id: string
@@ -87,14 +118,24 @@ async function build() {
     }>('/api/persona/build', { rows })
     twinData.value = data.profile
     resultText.value = JSON.stringify(data.profile, null, 2)
-    ElMessage.success('人设画像已生成并入库')
+
+    buildStepLabel.value = '正在保存人设记录…'
+    buildProgress.value = 95
     await loadRecords()
+
+    buildProgress.value = 100
+    buildStepLabel.value = '人设画像构建完成'
+    ElMessage.success('人设画像已生成并入库')
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : '构建失败'
     twinData.value = null
     resultText.value = ''
   } finally {
     loading.value = false
+    setTimeout(() => {
+      buildProgress.value = 0
+      buildStepLabel.value = ''
+    }, 1500)
   }
 }
 
@@ -220,43 +261,76 @@ onMounted(loadRecords)
       <div class="head-left">
         <h1 class="title">人设数据库</h1>
         <p class="subtitle">
-          左侧为<strong>行为行数据</strong>（JSON 数组，与采集/导出字段对齐）；点击构建后，右侧为孪生画像结果——底层仍是 JSON，默认可视化展示；也可切换查看原始 JSON。
+          基于用户行为数据构建数字孪生画像，包含兴趣模型、行为特征与认知维度三大模型。
           若行内包含字段 <code>persona_preset</code>（如 <code>elderly</code> / <code>youth</code> / <code>child</code>
           / <code>explore_heavy</code>），会与智能体动作打分联动，便于做信息茧房对比实验。
         </p>
-      </div>
-      <div class="head-actions">
-        <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
-        <el-button type="primary" :loading="loading" @click="build">构建并预览孪生画像</el-button>
-      </div>
-    </div>
-
-    <div class="preset-bar">
-      <span class="preset-title">预设人设（写入 JSON，含模拟特质）</span>
-      <div class="preset-btns">
-        <el-tooltip v-for="p in personaPresets" :key="p.id" :content="p.blurb" placement="top">
-          <el-button size="small" @click="applyPreset(p.rows)">{{ p.label }}</el-button>
-        </el-tooltip>
       </div>
     </div>
 
     <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
 
-    <div class="cols-labels">
-      <span>输入 rows</span>
-      <span class="right-head">
-        孪生画像输出
-        <el-radio-group v-model="rightMode" size="small" class="mode-switch">
-          <el-radio-button label="visual">可视化</el-radio-button>
-          <el-radio-button label="json">原始 JSON</el-radio-button>
-        </el-radio-group>
-      </span>
-    </div>
-    <div class="grid">
-      <el-input v-model="rowsText" type="textarea" :rows="14" class="left-ta" />
-      <PersonaTwinPreview :data="twinData" :raw-json="resultText" :view-mode="rightMode" />
+    <!-- 进度条 -->
+    <div v-if="loading && buildProgress > 0" class="progress-card">
+      <el-progress :percentage="buildProgress" :stroke-width="14" :format="(p: number) => `${p}%`" />
+      <div class="step-label">{{ buildStepLabel }}</div>
     </div>
 
+    <!-- 开始构建区域（初始状态） -->
+    <div v-if="!twinData && !loading" class="start-area">
+      <div v-if="dataReady" class="start-prompt">
+        <div class="start-icon">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="8" r="4" stroke="#8b5cf6" stroke-width="1.5"/>
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>数据已就绪，准备构建孪生画像</h3>
+        <p>将基于用户行为数据生成个性化人设画像</p>
+        <el-button type="primary" size="large" round :loading="loading" @click="build">
+          <span style="margin-right:6px">▶</span> 构建并预览孪生画像
+        </el-button>
+        <div class="start-tools">
+          <RowsFileImport format="auto" button-text="导入数据" @imported="onImportedRows" @error="onImportError" />
+          <el-tooltip v-for="p in personaPresets" :key="p.id" :content="p.blurb" placement="top">
+            <el-button size="small" @click="applyPreset(p.rows)">{{ p.label }}</el-button>
+          </el-tooltip>
+        </div>
+      </div>
+      <div v-else class="empty-hint">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="18" height="18" rx="3" stroke="#94a3b8" stroke-width="1.5"/>
+            <path d="M12 8v8M8 12h8" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <p>请先导入数据或选择预设人设</p>
+        <div class="empty-tools">
+          <RowsFileImport format="auto" button-text="导入数据" @imported="onImportedRows" @error="onImportError" />
+          <el-tooltip v-for="p in personaPresets" :key="p.id" :content="p.blurb" placement="top">
+            <el-button size="small" @click="applyPreset(p.rows)">{{ p.label }}</el-button>
+          </el-tooltip>
+        </div>
+      </div>
+    </div>
+
+    <!-- 画像结果区域 -->
+    <template v-if="twinData">
+      <div class="cols-labels">
+        <span>孪生画像输出</span>
+        <span class="right-head">
+          <el-radio-group v-model="rightMode" size="small" class="mode-switch">
+            <el-radio-button label="visual">可视化</el-radio-button>
+            <el-radio-button label="json">原始 JSON</el-radio-button>
+          </el-radio-group>
+        </span>
+      </div>
+      <div class="grid single">
+        <PersonaTwinPreview :data="twinData" :raw-json="resultText" :view-mode="rightMode" />
+      </div>
+    </template>
+
+    <!-- 人设记录库 -->
     <div class="records">
       <div class="records-head">
         <div class="records-title">人设记录库（CRUD）</div>
@@ -408,6 +482,9 @@ onMounted(loadRecords)
   gap: 12px;
   align-items: start;
 }
+.grid.single {
+  grid-template-columns: 1fr;
+}
 .left-ta :deep(textarea) {
   font-family: ui-monospace, monospace;
   font-size: 12px;
@@ -450,5 +527,76 @@ onMounted(loadRecords)
   .cols-labels {
     grid-template-columns: 1fr;
   }
+}
+
+.progress-card {
+  margin-bottom: 14px;
+  padding: 16px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.step-label {
+  margin-top: 8px;
+  font-size: 0.88rem;
+  color: #475569;
+  text-align: center;
+}
+
+.start-area {
+  margin: 20px 0;
+}
+
+.start-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  border: 2px dashed #e2e8f0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #faf5ff 0%, #fdf4ff 100%);
+}
+
+.start-prompt h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #1e293b;
+}
+
+.start-prompt p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #64748b;
+}
+
+.start-icon {
+  margin-bottom: 4px;
+}
+
+.empty-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: #94a3b8;
+  font-size: 0.92rem;
+}
+
+.empty-hint p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.empty-tools,
+.start-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
 }
 </style>

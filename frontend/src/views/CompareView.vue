@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
@@ -63,6 +63,17 @@ const rounds = ref(10)
 const resultText = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
+const compareProgress = ref(0)
+const compareStepLabel = ref('')
+const dataReady = computed(() => {
+  try {
+    const r = JSON.parse(rowsText.value)
+    const b = JSON.parse(benchmarkText.value)
+    return Array.isArray(r) && r.length > 0 && typeof b === 'object' && !Array.isArray(b)
+  } catch {
+    return false
+  }
+})
 const comparePayload = ref<CompareResponse | null>(null)
 const bestInfo = ref<{ name: string; drop: number; staticCocoon: number; reason: string } | null>(null)
 const ladderExecutionId = ref('')
@@ -502,7 +513,29 @@ async function runCompare() {
   errorMsg.value = ''
   comparePayload.value = null
   bestInfo.value = null
+  compareProgress.value = 0
+  compareStepLabel.value = '正在初始化策略对比环境…'
+
+  const steps = [
+    { label: '正在加载用户行为数据…', pct: 10 },
+    { label: '正在构建基线策略模拟…', pct: 25 },
+    { label: '正在运行激进跨域策略…', pct: 45 },
+    { label: '正在运行阶梯破茧策略…', pct: 65 },
+    { label: '正在运行混合探索策略…', pct: 80 },
+    { label: '正在生成对比报告与可视化…', pct: 92 },
+  ]
+
   try {
+    // 模拟分步进度
+    for (const step of steps) {
+      compareStepLabel.value = step.label
+      compareProgress.value = step.pct
+      await new Promise((r) => setTimeout(r, 300))
+    }
+
+    compareStepLabel.value = '正在获取策略对比结果…'
+    compareProgress.value = 95
+
     const rows = JSON.parse(rowsText.value) as Array<Record<string, unknown>>
     const benchmark = JSON.parse(benchmarkText.value) as Record<string, number>
     const { data } = await http.post<CompareResponse>('/api/simulation/compare', {
@@ -521,7 +554,13 @@ async function runCompare() {
         reason: String(best.reason ?? ''),
       }
     }
+
+    compareStepLabel.value = '正在渲染可视化图表…'
+    compareProgress.value = 98
     await refreshCharts()
+
+    compareProgress.value = 100
+    compareStepLabel.value = '对比完成'
   } catch (e) {
     resultText.value = ''
     comparePayload.value = null
@@ -535,6 +574,10 @@ async function runCompare() {
     }
   } finally {
     loading.value = false
+    setTimeout(() => {
+      compareProgress.value = 0
+      compareStepLabel.value = ''
+    }, 1500)
   }
 }
 
@@ -570,6 +613,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+
+      <!-- 进度条 -->
+      <div v-if="loading && compareProgress > 0" class="progress-card">
+        <el-progress :percentage="compareProgress" :stroke-width="14" :format="(p: number) => `${p}%`" />
+        <div class="step-label">{{ compareStepLabel }}</div>
+      </div>
 
       <div class="preset-bar">
         <span class="preset-title">示例场景</span>
@@ -617,16 +666,36 @@ onBeforeUnmount(() => {
         <div ref="barEl" class="chart bar" />
         <div ref="dropEl" class="chart drop" />
       </div>
-      <p v-else-if="!loading" class="viz-hint">点击「运行对比」后，这里会展示趋势、结果对比和改善排名。</p>
-
-      <div class="grid3">
-        <el-input v-model="rowsText" type="textarea" :rows="8" placeholder="对比样本数据（JSON 数组）" />
-        <el-input v-model="benchmarkText" type="textarea" :rows="8" placeholder="对比参考值（JSON 对象）" />
-        <details class="json-details">
-          <summary>系统返回数据（高级/调试）</summary>
-          <pre class="json-pre">{{ resultText || '（尚未运行）' }}</pre>
-        </details>
+      <div v-else-if="!loading" class="start-area">
+        <div v-if="dataReady" class="start-prompt">
+          <div class="start-icon">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="#3b82f6" stroke-width="1.5"/>
+              <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="#3b82f6" stroke-width="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.5" stroke="#3b82f6" stroke-width="1.5"/>
+              <rect x="14" y="14" width="7" height="7" rx="1.5" stroke="#3b82f6" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <h3>数据已就绪，准备运行策略对比</h3>
+          <p>将对 {{ rounds }} 轮模拟运行 4 种破茧策略并对比效果</p>
+          <el-button type="primary" size="large" round :loading="loading" @click="runCompare">
+            <span style="margin-right:6px">▶</span> 运行对比
+          </el-button>
+        </div>
+        <div v-else class="empty-hint">
+          请先通过上方「导入对比样本数据」或选择示例场景加载数据
+        </div>
       </div>
+
+      <!-- 高级调试区域（折叠） -->
+      <details class="json-details" style="margin-top:12px">
+        <summary>高级 / 调试数据</summary>
+        <div class="grid3">
+          <el-input v-model="rowsText" type="textarea" :rows="6" placeholder="对比样本数据（JSON 数组）" />
+          <el-input v-model="benchmarkText" type="textarea" :rows="6" placeholder="对比参考值（JSON 对象）" />
+          <pre class="json-pre">{{ resultText || '（尚未运行）' }}</pre>
+        </div>
+      </details>
     </div>
   </div>
 </template>
@@ -806,5 +875,58 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-all;
   color: #334155;
+}
+
+.progress-card {
+  margin-bottom: 14px;
+  padding: 16px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.step-label {
+  margin-top: 8px;
+  font-size: 0.88rem;
+  color: #475569;
+  text-align: center;
+}
+
+.start-area {
+  margin: 20px 0;
+}
+
+.start-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  border: 2px dashed #e2e8f0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #f0fdf4 100%);
+}
+
+.start-prompt h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #1e293b;
+}
+
+.start-prompt p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #64748b;
+}
+
+.start-icon {
+  margin-bottom: 4px;
+}
+
+.empty-hint {
+  text-align: center;
+  padding: 40px 0;
+  color: #94a3b8;
+  font-size: 0.92rem;
 }
 </style>

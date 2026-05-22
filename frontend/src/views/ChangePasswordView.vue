@@ -154,7 +154,7 @@ async function onSubmit() {
   font-weight: 600;
   color: #fff;
   cursor: pointer;
-  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  background: linear-gradient(90deg, #127fed 0%, #60affe 100%);
 }
 
 .submit:disabled {

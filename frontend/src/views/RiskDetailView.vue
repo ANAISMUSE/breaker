@@ -78,6 +78,21 @@ const actionPlan = ref<{
 const cohortInfo = ref<{ groupKey: string; deltaC: number } | null>(null)
 const trendPoints = ref<Array<{ date: string; cocoon_index: number; s1: number; s2: number; s3: number; s4: number }>>([])
 
+// 模拟进度相关状态
+const simulationStarted = ref(false)
+const simulationStep = ref(0)
+const simulationSteps = [
+  '正在导入用户行为数据…',
+  '正在执行语义增强与向量化…',
+  '正在计算四维度茧房指标…',
+  '正在生成风险评估报告…',
+  '正在绘制可视化图表…',
+]
+const simulationProgress = computed(() => {
+  if (!simulationStarted.value) return 0
+  return Math.min(100, Math.round((simulationStep.value / simulationSteps.length) * 100))
+})
+
 const rows = ref<RowsRow[]>(demoRows as RowsRow[])
 const benchmark = ref<Record<string, number>>(demoBenchmark)
 const rowsReady = ref(true)
@@ -517,7 +532,20 @@ async function evaluateAuto() {
 
   loading.value = true
   errorMsg.value = ''
+  simulationStarted.value = true
+  simulationStep.value = 0
+
   try {
+    // Step 0: 导入数据
+    simulationStep.value = 0
+    await delay(400)
+
+    // Step 1: 语义增强
+    simulationStep.value = 1
+    await delay(500)
+
+    // Step 2: 计算指标
+    simulationStep.value = 2
     const payload = { rows: rows.value, benchmark: benchmark.value }
     const { data: detail } = await http.post<RiskDetailResponse>('/api/risk/detail', payload)
     const overview = detail.overview
@@ -534,6 +562,9 @@ async function evaluateAuto() {
     }
     trendPoints.value = detail.trend_30d?.points ?? []
 
+    // Step 3: 生成报告
+    simulationStep.value = 3
+    await delay(300)
     const derived = buildDerived()
     hard.value = buildHardDerived()
     if (hard.value) {
@@ -541,13 +572,19 @@ async function evaluateAuto() {
     } else {
       actionPlan.value = null
     }
+
+    // Step 4: 绘制图表
+    simulationStep.value = 4
     await nextTick()
     drawRadar(overview)
-
     topicChart = drawPie(topicChart, topicEl.value, derived.topicDist, 'Topic 分布（加权）') ?? topicChart
     stanceChart = drawPie(stanceChart, stanceEl.value, derived.stanceDist, '立场分布（加权）') ?? stanceChart
     drawAlignment(derived)
     drawTrend(trendPoints.value)
+    await delay(300)
+
+    // 完成
+    simulationStep.value = simulationSteps.length
   } catch (e) {
     result.value = null
     llmEvidence.value = []
@@ -556,9 +593,14 @@ async function evaluateAuto() {
     cohortInfo.value = null
     trendPoints.value = []
     errorMsg.value = e instanceof Error ? e.message : '计算风险概览失败'
+    simulationStarted.value = false
   } finally {
     loading.value = false
   }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function loadJsonFile<T>(file: File): Promise<T> {
@@ -571,7 +613,7 @@ async function onPickDemo() {
   benchmark.value = demoBenchmark
   rowsReady.value = true
   benchmarkReady.value = true
-  await evaluateAuto()
+  // 不自动评估，等用户点击"开始模拟"
 }
 
 async function onImportedRows(
@@ -589,7 +631,7 @@ async function onImportedRows(
   errorMsg.value = ''
   rows.value = records as RowsRow[]
   rowsReady.value = true
-  await evaluateAuto()
+  // 不自动评估，等用户点击"开始模拟"
 }
 
 function onImportError(message: string) {
@@ -605,7 +647,6 @@ async function onPickRows(file: File | null) {
     if (!Array.isArray(parsed)) throw new Error('rows 文件必须是 JSON 数组')
     rows.value = parsed as RowsRow[]
     rowsReady.value = true
-    await evaluateAuto()
   } catch (e) {
     rowsReady.value = false
     errorMsg.value = e instanceof Error ? e.message : 'rows 文件解析失败'
@@ -620,7 +661,6 @@ async function onPickBenchmark(file: File | null) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('benchmark 文件必须是 JSON 对象')
     benchmark.value = parsed as Record<string, number>
     benchmarkReady.value = true
-    await evaluateAuto()
   } catch (e) {
     benchmarkReady.value = false
     errorMsg.value = e instanceof Error ? e.message : 'benchmark 文件解析失败'
@@ -629,8 +669,6 @@ async function onPickBenchmark(file: File | null) {
 
 let resizeHandler: (() => void) | null = null
 onMounted(() => {
-  // demo 默认就绪 -> 自动出图
-  evaluateAuto()
   resizeHandler = () => {
     radarChart?.resize()
     topicChart?.resize()
@@ -658,6 +696,32 @@ onBeforeUnmount(() => {
       </div>
 
       <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+
+      <!-- 进度条区域 -->
+      <div v-if="simulationStarted && !result" class="progress-card">
+        <el-progress :percentage="simulationProgress" :stroke-width="16" :format="(p: number) => `${p}%`" />
+        <div class="step-label">{{ simulationSteps[simulationStep] || '处理中…' }}</div>
+      </div>
+
+      <!-- 开始模拟按钮 / 空状态 -->
+      <div v-if="!result && !loading" class="start-area">
+        <div v-if="rowsReady && benchmarkReady" class="start-prompt">
+          <div class="start-icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="4 2"/>
+              <path d="M12 7v5l3 3" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3>数据已就绪，准备开始模拟</h3>
+          <p>已加载 {{ rows.length }} 条演示样本数据（{{ Object.keys(benchmark).length }} 个领域基准），点击下方按钮开始模拟评估</p>
+          <el-button type="primary" size="large" round @click="evaluateAuto">
+            <span style="margin-right:6px">▶</span> 开始模拟评估
+          </el-button>
+        </div>
+        <div v-else class="empty-hint">
+          请先导入或选择演示数据后点击「使用演示数据」
+        </div>
+      </div>
 
       <div class="toolbar">
         <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
@@ -718,7 +782,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="charts-grid">
+      <div v-if="result" class="charts-grid">
         <div class="chart-card"><div ref="radarEl" class="chart" /></div>
         <div class="chart-card"><div ref="topicEl" class="chart" /></div>
         <div class="chart-card"><div ref="stanceEl" class="chart" /></div>
@@ -759,8 +823,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-
-      <div v-else class="empty">导入数据后自动显示评估结果</div>
     </div>
   </div>
 </template>
@@ -1007,6 +1069,59 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   color: #64748b;
   padding: 24px 0 0;
+  font-size: 0.95rem;
+}
+
+.progress-card {
+  margin-top: 16px;
+  padding: 20px 24px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.step-label {
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: #475569;
+  text-align: center;
+}
+
+.start-area {
+  margin-top: 16px;
+}
+
+.start-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  border: 2px dashed #e2e8f0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #faf5ff 0%, #f0f7ff 100%);
+}
+
+.start-prompt h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #1e293b;
+}
+
+.start-prompt p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.start-icon {
+  margin-bottom: 4px;
+}
+
+.empty-hint {
+  text-align: center;
+  padding: 40px 0;
+  color: #94a3b8;
   font-size: 0.95rem;
 }
 

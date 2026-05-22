@@ -57,6 +57,8 @@ const profile = ref<TwinProfile | null>(null)
 const buildMeta = ref<{ profileId: string; userId: string; createdAt: string } | null>(null)
 const showRaw = ref(false)
 const showSource = ref(false)
+const buildProgress = ref(0)
+const buildStepLabel = ref('')
 
 const builtinPlatforms = ['all', 'douyin', 'weibo', 'xiaohongshu', 'kuaishou', 'bilibili']
 const selectedPlatform = ref('all')
@@ -274,7 +276,26 @@ async function runBuild(rows: JsonRow[]) {
   }
   loading.value = true
   errorMsg.value = ''
+  buildProgress.value = 0
+  buildStepLabel.value = '正在分析用户行为数据…'
+
+  const steps = [
+    { label: '正在分析用户行为数据…', pct: 15 },
+    { label: '正在构建兴趣偏好模型…', pct: 30 },
+    { label: '正在计算风险与生态指标…', pct: 50 },
+    { label: '正在生成应用画像…', pct: 70 },
+  ]
+
   try {
+    for (const step of steps) {
+      buildStepLabel.value = step.label
+      buildProgress.value = step.pct
+      await new Promise((r) => setTimeout(r, 300))
+    }
+
+    buildStepLabel.value = '正在调用 AI 生成画像…'
+    buildProgress.value = 85
+
     const { data } = await http.post<PersonaBuildResponse>('/api/persona/build', { rows })
     profile.value = data.profile ?? null
     buildMeta.value = {
@@ -282,13 +303,20 @@ async function runBuild(rows: JsonRow[]) {
       userId: String(data.user_id ?? '-'),
       createdAt: String(data.created_at ?? '-'),
     }
+
+    buildStepLabel.value = '正在渲染可视化图表…'
+    buildProgress.value = 95
     await nextTick()
     drawCharts()
+
+    buildProgress.value = 100
+    buildStepLabel.value = '画像分析完成'
   } catch (e) {
     profile.value = null
     errorMsg.value = e instanceof Error ? e.message : '构建画像失败'
   } finally {
     loading.value = false
+    setTimeout(() => { buildProgress.value = 0; buildStepLabel.value = '' }, 1500)
   }
 }
 
@@ -320,7 +348,7 @@ function onImportedRows(
   errorMsg.value = ''
   parsedRows.value = rows
   rowsText.value = JSON.stringify(rows, null, 2)
-  buildProfile()
+  // 不自动构建，等用户点击"开始分析"
 }
 
 function onImportError(message: string) {
@@ -339,8 +367,8 @@ watch(selectedPlatform, async () => {
 })
 
 let resizeHandler: (() => void) | null = null
-onMounted(async () => {
-  await runBuild(activeRows.value)
+onMounted(() => {
+  // 不自动构建，等用户点击"开始分析"
   resizeHandler = () => {
     topicChart?.resize()
     stanceChart?.resize()
@@ -371,6 +399,35 @@ onBeforeUnmount(() => {
 
       <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
 
+      <!-- 进度条 -->
+      <div v-if="loading && buildProgress > 0" class="progress-card">
+        <el-progress :percentage="buildProgress" :stroke-width="14" :format="(p: number) => `${p}%`" />
+        <div class="step-label">{{ buildStepLabel }}</div>
+      </div>
+
+      <!-- 初始空状态 -->
+      <div v-if="!profile && !loading" class="start-area">
+        <div class="start-prompt">
+          <div class="start-icon">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="3" width="18" height="18" rx="3" stroke="#3b82f6" stroke-width="1.5"/>
+              <circle cx="12" cy="12" r="4" stroke="#3b82f6" stroke-width="1.5"/>
+              <path d="M12 2v2M12 20v2M2 12h2M20 12h2" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3>准备开始应用画像分析</h3>
+          <p>将基于用户行为数据生成应用画像，包含风险评分、生态健康度、互动活跃度等维度</p>
+          <div class="start-tools">
+            <el-button type="primary" size="large" round :loading="loading" @click="buildProfile">
+              <span style="margin-right:6px">▶</span> 开始分析
+            </el-button>
+            <RowsFileImport format="auto" button-text="导入数据" @imported="onImportedRows" @error="onImportError" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 结果区域 -->
+      <template v-if="profile">
       <div class="hero">
         <div class="hero-main">
           <div class="app-icon">
@@ -503,6 +560,7 @@ onBeforeUnmount(() => {
           placeholder="行为样本数据（JSON 数组）"
         />
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -863,6 +921,56 @@ onBeforeUnmount(() => {
     flex-direction: column;
     margin-left: 0;
   }
+}
+
+.start-area {
+  display: flex;
+  justify-content: center;
+  padding: 60px 20px;
+}
+
+.start-prompt {
+  text-align: center;
+  max-width: 420px;
+}
+
+.start-icon {
+  margin-bottom: 16px;
+}
+
+.start-prompt h3 {
+  margin: 0 0 8px;
+  font-size: 1.3rem;
+  color: #0f172a;
+}
+
+.start-prompt p {
+  margin: 0 0 24px;
+  color: #64748b;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.start-tools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.progress-card {
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.step-label {
+  margin-top: 8px;
+  font-size: 0.88rem;
+  color: #475569;
 }
 </style>
 

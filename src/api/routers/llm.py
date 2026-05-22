@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -15,8 +15,8 @@ router = APIRouter(prefix="/llm", tags=["llm"])
 class InvokeTestIn(BaseModel):
     prompt: str = Field(default="请返回一个JSON对象，包含status和message字段。", min_length=1, max_length=4000)
     response_mode: Literal["text", "json", "multimodal"] = "json"
-    model: str | None = None
-    image_url: str | None = None
+    model: Optional[str] = None
+    image_url: Optional[str] = None
     temperature: float = Field(default=0.2, ge=0.0, le=1.5)
 
 

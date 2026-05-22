@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import http from '@/api/http'
 import RowsFileImport from '@/components/RowsFileImport.vue'
 import { demoBenchmark, demoRows } from '@/constants/demoData'
@@ -9,6 +9,17 @@ const rowsText = ref(JSON.stringify(demoRows, null, 2))
 const benchmarkText = ref(JSON.stringify(demoBenchmark, null, 2))
 const loading = ref(false)
 const errorMsg = ref('')
+const workbenchProgress = ref(0)
+const workbenchStepLabel = ref('')
+
+const dataReady = computed(() => {
+  try {
+    const r = JSON.parse(rowsText.value)
+    return Array.isArray(r) && r.length > 0
+  } catch {
+    return false
+  }
+})
 const planText = ref('')
 const reportPath = ref('')
 const trainingTopic = ref('AI是否应该取代部分人类工作')
@@ -52,30 +63,63 @@ function onImportError(message: string) {
 async function genPlan() {
   loading.value = true
   errorMsg.value = ''
+  workbenchProgress.value = 0
+  workbenchStepLabel.value = '正在分析用户数据特征…'
   try {
+    const steps = [
+      { label: '正在分析用户数据特征…', pct: 20 },
+      { label: '正在匹配破茧策略…', pct: 45 },
+      { label: '正在生成阶梯执行计划…', pct: 70 },
+    ]
+    for (const step of steps) {
+      workbenchStepLabel.value = step.label
+      workbenchProgress.value = step.pct
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    workbenchStepLabel.value = '正在获取计划结果…'
+    workbenchProgress.value = 88
     const rows = JSON.parse(rowsText.value) as Array<Record<string, unknown>>
     const benchmark = JSON.parse(benchmarkText.value) as Record<string, number>
     const { data } = await http.post('/api/workbench/plan', { rows, benchmark })
     planText.value = JSON.stringify(data, null, 2)
+    workbenchProgress.value = 100
+    workbenchStepLabel.value = '计划生成完成'
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : '生成计划失败'
   } finally {
     loading.value = false
+    setTimeout(() => { workbenchProgress.value = 0; workbenchStepLabel.value = '' }, 1500)
   }
 }
 
 async function exportReport() {
   loading.value = true
   errorMsg.value = ''
+  workbenchProgress.value = 0
+  workbenchStepLabel.value = '正在汇总评估数据…'
   try {
+    const steps = [
+      { label: '正在汇总评估数据…', pct: 25 },
+      { label: '正在生成 Word 文档…', pct: 55 },
+      { label: '正在保存报告文件…', pct: 80 },
+    ]
+    for (const step of steps) {
+      workbenchStepLabel.value = step.label
+      workbenchProgress.value = step.pct
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    workbenchProgress.value = 90
     const rows = JSON.parse(rowsText.value) as Array<Record<string, unknown>>
     const benchmark = JSON.parse(benchmarkText.value) as Record<string, number>
     const { data } = await http.post<{ path: string }>('/api/workbench/report', { rows, benchmark })
     reportPath.value = data.path
+    workbenchProgress.value = 100
+    workbenchStepLabel.value = '报告导出完成'
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : '导出报告失败'
   } finally {
     loading.value = false
+    setTimeout(() => { workbenchProgress.value = 0; workbenchStepLabel.value = '' }, 1500)
   }
 }
 
@@ -206,15 +250,35 @@ onMounted(loadTrainingRecords)
     </div>
     <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
     <p v-if="reportPath" class="ok">报告已生成：{{ reportPath }}</p>
+
+    <!-- 进度条 -->
+    <div v-if="loading && workbenchProgress > 0" class="progress-card">
+      <el-progress :percentage="workbenchProgress" :stroke-width="14" :format="(p: number) => `${p}%`" />
+      <div class="step-label">{{ workbenchStepLabel }}</div>
+    </div>
+
     <div class="toolbar">
-      <span class="tb-label">rows</span>
       <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
+      <el-button :loading="loading" @click="genPlan">生成阶梯计划</el-button>
+      <el-button type="primary" :loading="loading" @click="exportReport">导出 Word 报告</el-button>
+      <span v-if="dataReady" class="data-ready-badge">数据已就绪</span>
     </div>
-    <div class="grid3">
-      <el-input v-model="rowsText" type="textarea" :rows="10" />
-      <el-input v-model="benchmarkText" type="textarea" :rows="10" />
-      <el-input :model-value="planText" type="textarea" :rows="10" readonly />
+
+    <!-- 计划结果 -->
+    <div v-if="planText" class="plan-result">
+      <div class="plan-title">阶梯执行计划</div>
+      <pre class="plan-pre">{{ planText }}</pre>
     </div>
+
+    <!-- 高级调试区域（折叠） -->
+    <details class="json-details">
+      <summary>高级 / 调试数据</summary>
+      <div class="grid3">
+        <el-input v-model="rowsText" type="textarea" :rows="8" placeholder="rows 数据（JSON 数组）" />
+        <el-input v-model="benchmarkText" type="textarea" :rows="8" placeholder="benchmark 数据（JSON 对象）" />
+        <el-input :model-value="planText" type="textarea" :rows="8" readonly placeholder="计划输出" />
+      </div>
+    </details>
 
     <div class="training">
       <h3>认知灵活性训练（最小闭环）</h3>
@@ -304,5 +368,73 @@ onMounted(loadTrainingRecords)
 .trend-point { width:10px; background:#60a5fa; border-radius:4px 4px 0 0; }
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
 .phase5-panel { margin-top:18px; }
+
+.progress-card {
+  margin-bottom: 14px;
+  padding: 16px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.step-label {
+  margin-top: 8px;
+  font-size: 0.88rem;
+  color: #475569;
+  text-align: center;
+}
+
+.data-ready-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.json-details {
+  margin-top: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.json-details summary {
+  cursor: pointer;
+  color: #475569;
+  font-size: 13px;
+  user-select: none;
+}
+
+.plan-result {
+  margin-top: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.plan-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.plan-pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #334155;
+}
 </style>
 

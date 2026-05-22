@@ -61,6 +61,9 @@ const createForm = ref({
   extraSnapshotText: '{}',
 })
 
+const createRowsReady = ref(true)
+const createBenchmarkReady = ref(true)
+
 const taskDialogVisible = ref(false)
 const taskDialogTask = ref<TaskRow | null>(null)
 const taskLogs = ref<TaskLog[]>([])
@@ -269,6 +272,8 @@ function taskBenchmarkCount(task: TaskRow): number {
 function applyDemoConfig() {
   createForm.value.rowsText = JSON.stringify(demoRows, null, 2)
   createForm.value.benchmarkText = JSON.stringify(demoBenchmark, null, 2)
+  createRowsReady.value = true
+  createBenchmarkReady.value = true
 }
 
 function onImportedRows(
@@ -285,6 +290,7 @@ function onImportedRows(
 ) {
   errorMsg.value = ''
   createForm.value.rowsText = JSON.stringify(rows, null, 2)
+  createRowsReady.value = true
 }
 
 function onImportError(message: string) {
@@ -434,39 +440,49 @@ onMounted(load)
           <el-input-number v-model="createForm.rounds" :min="1" :max="100" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="creating" @click="createTask">创建</el-button>
-        </el-form-item>
-        <el-form-item>
           <RowsFileImport format="auto" @imported="onImportedRows" @error="onImportError" />
         </el-form-item>
         <el-form-item>
-          <el-button plain @click="applyDemoConfig">填充演示任务数据</el-button>
+          <el-button plain @click="applyDemoConfig">使用演示数据</el-button>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="creating" :disabled="!createRowsReady" @click="createTask">创建任务</el-button>
         </el-form-item>
       </el-form>
 
-      <div class="snapshot-box">
-        <div class="snapshot-label">任务输入配置（创建时设置，运行时自动沿用）</div>
-        <el-input
-          v-model="createForm.rowsText"
-          type="textarea"
-          :rows="5"
-          placeholder='样本数据（JSON 数组），例如：[{"content_id":"1","platform":"douyin","topic":"technology","text":"..."}]'
-        />
-        <el-input
-          v-model="createForm.benchmarkText"
-          type="textarea"
-          :rows="3"
-          placeholder='参考值设置（JSON 对象），例如：{"technology":0.4,"society":0.3}'
-          style="margin-top: 8px"
-        />
-        <el-input
-          v-model="createForm.extraSnapshotText"
-          type="textarea"
-          :rows="2"
-          placeholder='可选附加信息（JSON 对象）'
-          style="margin-top: 8px"
-        />
+      <div class="data-status">
+        <span :class="['status-dot', createRowsReady ? 'ready' : 'not-ready']" />
+        <span>样本数据：{{ createRowsReady ? '已就绪' : '未导入' }}</span>
+        <span :class="['status-dot', createBenchmarkReady ? 'ready' : 'not-ready']" style="margin-left:16px" />
+        <span>参考值：{{ createBenchmarkReady ? '已就绪' : '未设置' }}</span>
       </div>
+
+      <!-- 高级配置（折叠） -->
+      <details class="json-details">
+        <summary>高级配置（编辑原始 JSON 数据）</summary>
+        <div class="snapshot-box">
+          <el-input
+            v-model="createForm.rowsText"
+            type="textarea"
+            :rows="5"
+            placeholder='样本数据（JSON 数组）'
+          />
+          <el-input
+            v-model="createForm.benchmarkText"
+            type="textarea"
+            :rows="3"
+            placeholder='参考值设置（JSON 对象）'
+            style="margin-top: 8px"
+          />
+          <el-input
+            v-model="createForm.extraSnapshotText"
+            type="textarea"
+            :rows="2"
+            placeholder='可选附加信息（JSON 对象）'
+            style="margin-top: 8px"
+          />
+        </div>
+      </details>
 
       <el-table v-loading="loading" :data="tasks" stripe empty-text="暂无任务" style="width: 100%">
         <el-table-column prop="name" label="名称" min-width="140" />
@@ -676,6 +692,45 @@ onMounted(load)
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.data-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  color: #475569;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.ready {
+  background: #22c55e;
+}
+
+.status-dot.not-ready {
+  background: #d1d5db;
+}
+
+.json-details {
+  margin-bottom: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.json-details summary {
+  cursor: pointer;
+  color: #475569;
+  font-size: 13px;
+  user-select: none;
 }
 
 .dialog-meta {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,23 +24,23 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 class UserProfileOut(BaseModel):
     username: str
     role: str
-    nickname: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    avatar: str | None = None
+    nickname: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    avatar: Optional[str] = None
     created_at: str
     updated_at: str
 
 
 class UserProfilePatchIn(BaseModel):
-    nickname: str | None = Field(default=None, max_length=64)
-    email: str | None = Field(default=None, max_length=255)
-    phone: str | None = Field(default=None, max_length=32)
-    avatar: str | None = Field(default=None, max_length=512)
+    nickname: Optional[str] = Field(default=None, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=32)
+    avatar: Optional[str] = Field(default=None, max_length=512)
 
     @field_validator("phone")
     @classmethod
-    def validate_phone(cls, value: str | None) -> str | None:
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
         if value is None or value.strip() == "":
             return None
         normalized = value.strip()
@@ -50,7 +50,7 @@ class UserProfilePatchIn(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, value: str | None) -> str | None:
+    def validate_email(cls, value: Optional[str]) -> Optional[str]:
         if value is None or value.strip() == "":
             return None
         normalized = value.strip()
@@ -60,7 +60,7 @@ class UserProfilePatchIn(BaseModel):
 
     @field_validator("avatar")
     @classmethod
-    def validate_avatar(cls, value: str | None) -> str | None:
+    def validate_avatar(cls, value: Optional[str]) -> Optional[str]:
         if value is None or value.strip() == "":
             return None
         normalized = value.strip()

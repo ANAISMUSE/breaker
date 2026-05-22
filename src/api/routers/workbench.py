@@ -166,16 +166,21 @@ def submit_training(training_id: str, payload: TrainingSubmitIn) -> dict:
         topic = str(rec.get("topic", "general"))
         pro_view = str(rec.get("pro_view", ""))
         con_view = str(rec.get("con_view", ""))
-        review = get_llm_provider().review_training_submission(
-            topic=topic,
-            pro_view=pro_view,
-            con_view=con_view,
-            summary=summary,
-            reflection=payload.reflection.strip(),
-        )
-        score = float(review.score)
-        feedback = str(review.feedback)
-        evidence = [str(x) for x in review.evidence]
+        try:
+            review = get_llm_provider().review_training_submission(
+                topic=topic,
+                pro_view=pro_view,
+                con_view=con_view,
+                summary=summary,
+                reflection=payload.reflection.strip(),
+            )
+            score = float(review.score)
+            feedback = str(review.feedback)
+            evidence = [str(x) for x in review.evidence]
+        except Exception as exc:
+            score = 0.0
+            feedback = f"LLM 评阅暂不可用: {exc}"
+            evidence = []
         rec["status"] = "submitted"
         rec["summary"] = summary
         rec["reflection"] = payload.reflection.strip()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,8 +21,8 @@ class PersonaCreateIn(BaseModel):
 
 
 class PersonaUpdateIn(BaseModel):
-    user_id: str | None = None
-    profile: dict | None = None
+    user_id: Optional[str] = None
+    profile: Optional[dict] = None
 
 
 @router.post("/build")

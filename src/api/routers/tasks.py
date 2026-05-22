@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -32,10 +34,10 @@ class LogIn(BaseModel):
 
 
 class RunTaskIn(BaseModel):
-    rows: list[dict] | None = None
-    benchmark: dict[str, float] | None = None
-    rounds: int | None = None
-    device_id: str | None = None
+    rows: Optional[list[dict]] = None
+    benchmark: Optional[dict[str, float]] = None
+    rounds: Optional[int] = None
+    device_id: Optional[str] = None
 
 
 @router.get("")
@@ -91,10 +93,10 @@ def export_task(task_id: str) -> dict:
 @router.get("/{task_id}/logs")
 def get_task_logs(
     task_id: str,
-    level: str | None = None,
-    event: str | None = None,
-    start_ts: str | None = None,
-    end_ts: str | None = None,
+    level: Optional[str] = None,
+    event: Optional[str] = None,
+    start_ts: Optional[str] = None,
+    end_ts: Optional[str] = None,
     page: int = 1,
     page_size: int = 10,
 ) -> dict:
@@ -155,10 +157,10 @@ def export_task_logs(task_id: str) -> dict:
 @router.get("/{task_id}/logs/export.csv")
 def export_task_logs_csv(
     task_id: str,
-    level: str | None = None,
-    event: str | None = None,
-    start_ts: str | None = None,
-    end_ts: str | None = None,
+    level: Optional[str] = None,
+    event: Optional[str] = None,
+    start_ts: Optional[str] = None,
+    end_ts: Optional[str] = None,
 ) -> Response:
     out = service.export_task_logs_csv(task_id, level=level, event=event, start_ts=start_ts, end_ts=end_ts)
     if not out:
